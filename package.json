@@ -1,0 +1,15 @@
+{
+  "name": "ai-crypto-paper-trader",
+  "version": "1.0.0",
+  "description": "Autonomous AI Crypto Trading Bot with Continuous Learning, Trailing SL/TP, and Live Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@tensorflow/tfjs": "^4.22.0",
+    "brain.js": "^2.0.0-beta.24",
+    "express": "^4.19.2",
+    "ws": "^8.17.0"
+  }
+}

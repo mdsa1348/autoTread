@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ApexAI • Deep Learning Neural Crypto Trading Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo-icon">▲</div>
+      <div class="brand-text">
+        <h1>APEX<span>AI</span> NEURAL TRADER</h1>
+        <span class="badge live-badge"><span class="pulse"></span> TENSORFLOW.JS ACTIVE</span>
+      </div>
+    </div>
+
+    <div class="header-status">
+      <div class="status-card">
+        <span class="label">ENGINE STATUS</span>
+        <span id="botStatusBadge" class="value text-success">AUTONOMOUS ACTIVE</span>
+      </div>
+      <div class="status-card">
+        <span class="label">TOTAL EQUITY</span>
+        <span id="headerEquity" class="value glow-text">$10,000.00</span>
+      </div>
+      <div class="header-actions">
+        <button id="toggleBotBtn" class="btn btn-outline" onclick="toggleBot()">Pause AI Bot</button>
+        <button class="btn btn-danger-outline" onclick="resetDemo()">Reset $10K Demo</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Grid Dashboard -->
+  <main class="dashboard-grid">
+
+    <!-- KPI Summary Row -->
+    <section class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-title">Free Available USDT</div>
+        <div class="kpi-val" id="kpiFreeBalance">$10,000.00</div>
+        <div class="kpi-sub">Ready for deployment</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Net Realized PnL</div>
+        <div class="kpi-val text-neutral" id="kpiNetProfit">$0.00 (+0.00%)</div>
+        <div class="kpi-sub">Excluding current holdings</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">AI Win Rate & NN Loss</div>
+        <div class="kpi-val text-info" id="kpiWinRate">0% <span style="font-size:12px; color:#8a99ad">(Loss: 0.25)</span></div>
+        <div class="kpi-sub" id="kpiTradeCount">0 trades learned</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Exchange Fees Paid (0.1%)</div>
+        <div class="kpi-val text-warning" id="kpiFees">$0.00</div>
+        <div class="kpi-sub">Simulated Binance Spot Fee</div>
+      </div>
+    </section>
+
+    <!-- Center Market & Chart Section -->
+    <div class="main-columns">
+      
+      <!-- Left Column: Coin Watcher & AI Signals -->
+      <aside class="sidebar-coins">
+        <div class="panel-header">
+          <h3>Market Tickers & Neural Radar</h3>
+          <span class="subtext">5m Auto-Scan</span>
+        </div>
+        <div class="coin-list" id="coinListContainer">
+          <!-- Populated by JS -->
+        </div>
+      </aside>
+
+      <!-- Center: Chart & Strategy Breakdown -->
+      <section class="chart-section">
+        <div class="chart-header">
+          <div class="coin-select-info">
+            <h2 id="activeSymbolTitle">BTC/USDT</h2>
+            <span class="price-badge" id="activeSymbolPrice">$0.00</span>
+            <span id="activeSymbolSignal" class="signal-tag tag-hold">ANALYZING</span>
+          </div>
+          <div class="chart-controls">
+            <button class="btn btn-sm btn-primary" onclick="triggerManualBuy()">Manual Quick Buy (15%)</button>
+          </div>
+        </div>
+
+        <div class="chart-container">
+          <canvas id="marketChart"></canvas>
+        </div>
+
+        <!-- AI Brain Insights & Strategy Weights -->
+        <div class="ai-brain-panel">
+          <div class="brain-header">
+            <h4>🧠 Deep Neural Network & Multi-Strategy Brain</h4>
+            <span class="badge" id="modelExperienceBadge">Memory: 0 Trades</span>
+          </div>
+          <div class="weights-grid">
+            <div class="weight-item">
+              <span class="w-name">Deep Neural Net</span>
+              <div class="w-bar"><div id="w-nn" class="w-fill" style="width: 65%; background: #00e676"></div></div>
+              <span id="w-nn-val" class="w-num">1.40</span>
+            </div>
+            <div class="weight-item">
+              <span class="w-name">EMA Trend Align</span>
+              <div class="w-bar"><div id="w-ema" class="w-fill" style="width: 50%"></div></div>
+              <span id="w-ema-val" class="w-num">1.25</span>
+            </div>
+            <div class="weight-item">
+              <span class="w-name">RSI Momentum</span>
+              <div class="w-bar"><div id="w-rsi" class="w-fill" style="width: 45%"></div></div>
+              <span id="w-rsi-val" class="w-num">1.10</span>
+            </div>
+            <div class="weight-item">
+              <span class="w-name">Bollinger Bands</span>
+              <div class="w-bar"><div id="w-bb" class="w-fill" style="width: 40%"></div></div>
+              <span id="w-bb-val" class="w-num">0.95</span>
+            </div>
+          </div>
+          <div class="signal-reason-box">
+            <strong>Neural Inference & Logic:</strong>
+            <span id="signalReasonText">Calibrating neural tensors...</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Active Positions & Trailing SL/TP Tracker -->
+    <section class="positions-section">
+      <div class="panel-header">
+        <h3>⚡ Active Positions & Trailing SL/TP Monitor</h3>
+        <span class="subtext">Auto-trailing stop increases with new price peaks</span>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Position ID</th>
+              <th>Coin</th>
+              <th>Entry Price</th>
+              <th>Current Price</th>
+              <th>Dynamic Stop-Loss (Trailing)</th>
+              <th>Take-Profit Target</th>
+              <th>Invested (USDT)</th>
+              <th>Unrealized PnL</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="positionsTableBody">
+            <tr>
+              <td colspan="9" class="empty-state">No open positions. AI is scanning for high-confidence entries...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Trade History & Learning Logs -->
+    <section class="history-section">
+      <div class="panel-header">
+        <h3>📜 Closed Trades & Neural Feedback (0.1% Fee Deducted)</h3>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Coin</th>
+              <th>Entry</th>
+              <th>Exit</th>
+              <th>Total Fees (0.1%)</th>
+              <th>Net Realized PnL</th>
+              <th>Exit Reason</th>
+              <th>Deep Learning Update</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody">
+            <tr>
+              <td colspan="8" class="empty-state">No closed trades yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
