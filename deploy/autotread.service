@@ -1,0 +1,20 @@
+[Unit]
+Description=AutoTread paper bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/autotread
+Environment=NODE_ENV=production
+Environment=TRADING_MODE=paper
+Environment=DATA_DIR=/opt/autotread/data
+Environment=PORT=3000
+ExecStart=/usr/bin/node watchdog.js
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

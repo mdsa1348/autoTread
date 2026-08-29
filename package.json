@@ -4,11 +4,19 @@
   "description": "Autonomous AI Crypto Trading Bot with Continuous Learning, Trailing SL/TP, and Live Dashboard",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node watchdog.js",
+    "start:once": "node server.js",
+    "backtest": "node backtest.js",
+    "train": "node train_offline.js",
+    "train:opinion": "node train_opinion_b.js",
+    "train:years": "node train_years.js",
+    "train:rl": "node train_rl.js"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
-    "brain.js": "^2.0.0-beta.24",
     "express": "^4.19.2",
     "ws": "^8.17.0"
   }

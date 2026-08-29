@@ -1,3 +1,17 @@
 node_modules/
 data_store.json
+data_store.*.json
+data_store.json.tmp
+minute_analysis.json
+minute_analysis.*.json
+minute_analysis.json.tmp
+nn_model.json
+nn_model.live.json
+nn_model_b.json
+rl_policy.json
+nn_model.pre-offline.json
+train_report.json
+train_years_report.json
+nn_model.pre-years.json
+.env
 .DS_Store

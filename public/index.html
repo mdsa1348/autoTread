@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ApexAI • Deep Learning Neural Crypto Trading Terminal</title>
+  <title>AutoTread • Paper Trading Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -12,13 +12,15 @@
 </head>
 <body>
 
+  <div id="runtimeBanner" class="runtime-banner runtime-paper" style="display:none"></div>
+
   <!-- Top Navigation Bar -->
   <header class="topbar">
     <div class="brand">
       <div class="logo-icon">▲</div>
       <div class="brand-text">
-        <h1>APEX<span>AI</span> NEURAL TRADER</h1>
-        <span class="badge live-badge"><span class="pulse"></span> TENSORFLOW.JS ACTIVE</span>
+        <h1>AUTO<span>TREAD</span></h1>
+        <span class="badge live-badge"><span class="pulse"></span> RULES + MTF PAPER ENGINE</span>
       </div>
     </div>
 
@@ -32,8 +34,9 @@
         <span id="headerEquity" class="value glow-text">$10,000.00</span>
       </div>
       <div class="header-actions">
+        <button class="btn btn-outline" onclick="openSettingsModal()">⚙️ Settings & Risk</button>
         <button id="toggleBotBtn" class="btn btn-outline" onclick="toggleBot()">Pause AI Bot</button>
-        <button class="btn btn-danger-outline" onclick="resetDemo()">Reset $10K Demo</button>
+        <button class="btn btn-danger-outline" onclick="resetDemo()">Reset Demo</button>
       </div>
     </div>
   </header>
@@ -46,22 +49,36 @@
       <div class="kpi-card">
         <div class="kpi-title">Free Available USDT</div>
         <div class="kpi-val" id="kpiFreeBalance">$10,000.00</div>
-        <div class="kpi-sub">Ready for deployment</div>
+        <div class="kpi-sub">Available for new trades</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-title">Net Realized PnL</div>
+        <div class="kpi-title" id="kpiPnlTitle">Open PnL</div>
         <div class="kpi-val text-neutral" id="kpiNetProfit">$0.00 (+0.00%)</div>
-        <div class="kpi-sub">Excluding current holdings</div>
+        <div class="kpi-sub" id="kpiPnlSub">Unrealized on open positions · nothing closed yet</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-title">AI Win Rate & NN Loss</div>
-        <div class="kpi-val text-info" id="kpiWinRate">0% <span style="font-size:12px; color:#8a99ad">(Loss: 0.25)</span></div>
-        <div class="kpi-sub" id="kpiTradeCount">0 trades learned</div>
+        <div class="kpi-title">Win Rate</div>
+        <div class="kpi-val text-info" id="kpiWinRate">0%</div>
+        <div class="kpi-sub" id="kpiTradeCount">Closed paper trades (not a live edge)</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-title">Exchange Fees Paid (0.1%)</div>
-        <div class="kpi-val text-warning" id="kpiFees">$0.00</div>
-        <div class="kpi-sub">Simulated Binance Spot Fee</div>
+        <div class="kpi-title">Max Drawdown</div>
+        <div class="kpi-val text-warning" id="kpiDrawdown">0.00%</div>
+        <div class="kpi-sub" id="kpiProfitFactor">Profit factor: —</div>
+      </div>
+    </section>
+
+    <section class="positions-section" style="margin-top: 0;">
+      <div class="panel-header">
+        <h3>Session equity (you are already trading on 1-minute data)</h3>
+        <span class="subtext">The history replay uses candles already loaded at boot. It is not a 5-minute wait to start trading.</span>
+      </div>
+      <div class="chart-header" style="padding: 0 16px 8px; gap: 12px; flex-wrap: wrap;">
+        <button class="btn btn-sm btn-outline" onclick="runBacktest()">Replay stored history (all scanned coins)</button>
+        <span id="backtestStatus" class="subtext">Trading is live on 1m. Replay is optional and uses data already in memory.</span>
+      </div>
+      <div class="chart-container" style="height: 180px; margin: 0 16px 16px;">
+        <canvas id="equityChart"></canvas>
       </div>
     </section>
 
@@ -71,8 +88,8 @@
       <!-- Left Column: Coin Watcher & AI Signals -->
       <aside class="sidebar-coins">
         <div class="panel-header">
-          <h3>Market Tickers & Neural Radar</h3>
-          <span class="subtext">5m Auto-Scan</span>
+          <h3 id="scannerTitle">Opportunity Scanner</h3>
+          <span class="subtext">1m Live Scan</span>
         </div>
         <div class="coin-list" id="coinListContainer">
           <!-- Populated by JS -->
@@ -84,12 +101,70 @@
         <div class="chart-header">
           <div class="coin-select-info">
             <h2 id="activeSymbolTitle">BTC/USDT</h2>
-            <span class="price-badge" id="activeSymbolPrice">$0.00</span>
+            <div class="price-stack">
+              <span class="price-badge" id="activeSymbolPrice">$0.00</span>
+              <span class="price-checked" id="activeSymbolPriceTime">Last checked: --</span>
+            </div>
             <span id="activeSymbolSignal" class="signal-tag tag-hold">ANALYZING</span>
           </div>
-          <div class="chart-controls">
-            <button class="btn btn-sm btn-primary" onclick="triggerManualBuy()">Manual Quick Buy (15%)</button>
+
+          <!-- Multi-Timeframe Alignment Radar Widget -->
+          <div class="mtf-radar-box">
+            <span class="mtf-title">MTF Radar:</span>
+            <span id="mtfTag1m" class="badge">1m: --</span>
+            <span id="mtfTag5m" class="badge">5m: --</span>
+            <span id="mtfTag1h" class="badge">1h: --</span>
+            <span id="mtfTag4h" class="badge">4h: --</span>
+            <span id="secondOpinionTag" class="badge">2nd: --</span>
+            <span id="rlPolicyTag" class="badge">RL: --</span>
+            <span id="fiveMinTag" class="badge">5m next: --</span>
+            <span id="fiveMinHitTag" class="badge">5m check: --</span>
           </div>
+
+          <div class="chart-controls" style="display: flex; gap: 8px;">
+            <button class="btn btn-sm btn-primary" onclick="triggerManualOrder('LONG')">▲ Long</button>
+            <button class="btn btn-sm btn-danger-outline" style="border-color: rgba(255,23,68,0.5); color: #ff5252;" onclick="triggerManualOrder('SHORT')">▼ Short</button>
+          </div>
+        </div>
+
+        <!-- SMC Structure + PDH/PDL + Session Info Bar -->
+        <div class="smc-info-bar" id="smcInfoBar">
+          <div class="smc-pill" id="smcStructurePill">
+            <span class="smc-label">Structure</span>
+            <span id="smcStructureVal">--</span>
+          </div>
+          <div class="smc-pill" id="smcChochPill" style="display:none">
+            <span class="smc-label">⚡ CHoCH</span>
+            <span id="smcChochVal">--</span>
+          </div>
+          <div class="smc-pill" id="smcBosPill" style="display:none">
+            <span class="smc-label">📊 BOS</span>
+            <span id="smcBosVal">--</span>
+          </div>
+          <div class="smc-pill smc-pdh">
+            <span class="smc-label">PDH</span>
+            <span id="smcPDH">--</span>
+          </div>
+          <div class="smc-pill smc-pdl">
+            <span class="smc-label">PDL</span>
+            <span id="smcPDL">--</span>
+          </div>
+          <div class="smc-pill">
+            <span class="smc-label">Session</span>
+            <span id="smcSession">--</span>
+          </div>
+          <div class="smc-pill" id="smcCvdPill">
+            <span class="smc-label">CVD</span>
+            <span id="smcCVD">--</span>
+          </div>
+          <div class="smc-pill" id="smcSarPill" style="display:none">
+            <span class="smc-label">🔄 SAR</span>
+            <span id="smcSAR" style="color:#ff9800">FLIP</span>
+          </div>
+        </div>
+
+        <!-- Remove duplicate closing div (re-open chart-header content) -->
+        <div style="display:none">
         </div>
 
         <div class="chart-container">
@@ -99,34 +174,82 @@
         <!-- AI Brain Insights & Strategy Weights -->
         <div class="ai-brain-panel">
           <div class="brain-header">
-            <h4>🧠 Deep Neural Network & Multi-Strategy Brain</h4>
+            <h4>Indicator weights (rules engine)</h4>
             <span class="badge" id="modelExperienceBadge">Memory: 0 Trades</span>
           </div>
           <div class="weights-grid">
             <div class="weight-item">
-              <span class="w-name">Deep Neural Net</span>
+              <span class="w-name" id="w-nn-name">Neural net</span>
               <div class="w-bar"><div id="w-nn" class="w-fill" style="width: 65%; background: #00e676"></div></div>
-              <span id="w-nn-val" class="w-num">1.40</span>
+              <span id="w-nn-val" class="w-num">1.45</span>
+            </div>
+            <div class="weight-item">
+              <span class="w-name">🏛️ SMC Structure</span>
+              <div class="w-bar"><div id="w-smc" class="w-fill" style="width: 70%; background: #ff9800"></div></div>
+              <span id="w-smc-val" class="w-num">1.60</span>
+            </div>
+            <div class="weight-item">
+              <span class="w-name">MACD Momentum</span>
+              <div class="w-bar"><div id="w-macd" class="w-fill" style="width: 55%; background: #00f2fe"></div></div>
+              <span id="w-macd-val" class="w-num">1.25</span>
+            </div>
+            <div class="weight-item">
+              <span class="w-name">📅 PDH/PDL Levels</span>
+              <div class="w-bar"><div id="w-kl" class="w-fill" style="width: 60%; background: #e040fb"></div></div>
+              <span id="w-kl-val" class="w-num">1.30</span>
             </div>
             <div class="weight-item">
               <span class="w-name">EMA Trend Align</span>
               <div class="w-bar"><div id="w-ema" class="w-fill" style="width: 50%"></div></div>
-              <span id="w-ema-val" class="w-num">1.25</span>
+              <span id="w-ema-val" class="w-num">1.20</span>
+            </div>
+            <div class="weight-item">
+              <span class="w-name">ADX Trend Filter</span>
+              <div class="w-bar"><div id="w-adx" class="w-fill" style="width: 48%; background: #ffb300"></div></div>
+              <span id="w-adx-val" class="w-num">1.10</span>
             </div>
             <div class="weight-item">
               <span class="w-name">RSI Momentum</span>
               <div class="w-bar"><div id="w-rsi" class="w-fill" style="width: 45%"></div></div>
-              <span id="w-rsi-val" class="w-num">1.10</span>
+              <span id="w-rsi-val" class="w-num">1.05</span>
+            </div>
+            <div class="weight-item">
+              <span class="w-name">📊 CVD Pressure</span>
+              <div class="w-bar"><div id="w-cvd" class="w-fill" style="width: 42%; background: #69f0ae"></div></div>
+              <span id="w-cvd-val" class="w-num">0.95</span>
             </div>
             <div class="weight-item">
               <span class="w-name">Bollinger Bands</span>
               <div class="w-bar"><div id="w-bb" class="w-fill" style="width: 40%"></div></div>
-              <span id="w-bb-val" class="w-num">0.95</span>
+              <span id="w-bb-val" class="w-num">0.90</span>
             </div>
           </div>
           <div class="signal-reason-box">
-            <strong>Neural Inference & Logic:</strong>
+            <strong>Neural Confluence & Logic:</strong>
             <span id="signalReasonText">Calibrating neural tensors...</span>
+          </div>
+          <div class="five-min-panel">
+            <div class="brain-header">
+              <h4>Next 5 minutes</h4>
+              <span class="badge" id="fiveMinSkillBadge">5m skill: --</span>
+            </div>
+            <p class="subtext" id="fiveMinNowLine">Select a coin. The bot calls LONG/SHORT for the next 5 minutes, then checks the real 1m close.</p>
+            <div class="table-responsive">
+              <table class="data-table five-min-table">
+                <thead>
+                  <tr>
+                    <th>When checked</th>
+                    <th>Coin</th>
+                    <th>Called</th>
+                    <th>Result</th>
+                    <th>Move</th>
+                  </tr>
+                </thead>
+                <tbody id="fiveMinTableBody">
+                  <tr><td colspan="5" class="empty-state">Waiting for the first 5-minute check…</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
@@ -136,18 +259,21 @@
     <section class="positions-section">
       <div class="panel-header">
         <h3>⚡ Active Positions & Trailing SL/TP Monitor</h3>
-        <span class="subtext">Auto-trailing stop increases with new price peaks</span>
+        <span class="subtext">Stops and targets are on position PnL. Trail only after a full +0.8% (1R), then keep about +0.30% so winners are not locked at +0.01% after fees.</span>
       </div>
       <div class="table-responsive">
         <table class="data-table">
           <thead>
             <tr>
               <th>Position ID</th>
+              <th>Opened</th>
               <th>Coin</th>
+              <th>Direction</th>
+              <th>Saw / agreed</th>
               <th>Entry Price</th>
               <th>Current Price</th>
-              <th>Dynamic Stop-Loss (Trailing)</th>
-              <th>Take-Profit Target</th>
+              <th>Position stop</th>
+              <th>Position target</th>
               <th>Invested (USDT)</th>
               <th>Unrealized PnL</th>
               <th>Action</th>
@@ -155,7 +281,7 @@
           </thead>
           <tbody id="positionsTableBody">
             <tr>
-              <td colspan="9" class="empty-state">No open positions. AI is scanning for high-confidence entries...</td>
+              <td colspan="12" class="empty-state">No open positions. AI is scanning for high-confidence entries...</td>
             </tr>
           </tbody>
         </table>
@@ -165,25 +291,30 @@
     <!-- Trade History & Learning Logs -->
     <section class="history-section">
       <div class="panel-header">
-        <h3>📜 Closed Trades & Neural Feedback (0.1% Fee Deducted)</h3>
+        <h3 id="historyTitle">📜 Closed Trades — all saved (0.1% fee deducted)</h3>
       </div>
       <div class="table-responsive">
         <table class="data-table">
           <thead>
             <tr>
-              <th>Time</th>
+              <th>Opened</th>
+              <th>Closed</th>
               <th>Coin</th>
+              <th>Direction</th>
               <th>Entry</th>
               <th>Exit</th>
+              <th>Invested</th>
               <th>Total Fees (0.1%)</th>
               <th>Net Realized PnL</th>
               <th>Exit Reason</th>
-              <th>Deep Learning Update</th>
+              <th>Why it broke</th>
+              <th>Saw / agreed</th>
+              <th>Rules feedback</th>
             </tr>
           </thead>
           <tbody id="historyTableBody">
             <tr>
-              <td colspan="8" class="empty-state">No closed trades yet.</td>
+              <td colspan="13" class="empty-state">No closed trades yet.</td>
             </tr>
           </tbody>
         </table>
@@ -191,6 +322,253 @@
     </section>
 
   </main>
+
+  <!-- Settings & Risk Configuration Modal -->
+  <div id="settingsModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>⚙️ Terminal Settings & Risk Management</h2>
+        <button class="modal-close-btn" onclick="closeSettingsModal()">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Balance Control Box -->
+        <div class="settings-group">
+          <h3>💰 Balance & Capital Allocation</h3>
+          <div class="balance-display-row">
+            <div>
+              <span class="subtext">Current Free Balance:</span>
+              <strong id="modalFreeBalance">$10,000.00 USDT</strong>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="number" id="customBalanceInput" value="10000" step="1000" min="100" class="form-input" style="width: 120px;" placeholder="USDT">
+              <button class="btn btn-sm btn-primary" onclick="setCustomBalance()">Update Balance</button>
+            </div>
+          </div>
+          <p id="liveBalanceHint" class="subtext" style="display:none; margin-top: 8px;">Live mode: equity is read from Binance futures. Paper reset is disabled.</p>
+
+          <div class="form-row" style="margin-top: 16px;">
+            <label>
+              <span>Dashboard control token (required when TRADING_MODE=live)</span>
+              <input type="password" id="settingControlToken" class="form-input" placeholder="Matches CONTROL_TOKEN in .env" autocomplete="off">
+            </label>
+          </div>
+
+          <!-- Trade Sizing Mode -->
+          <div class="form-row" style="margin-top: 16px;">
+            <label style="display: flex; justify-content: space-between; align-items: center;">
+              <span>Position Sizing Mode:</span>
+              <select id="settingSizingMode" class="form-input" style="width: 170px;" onchange="toggleSizingModeUI()">
+                <option value="PERCENT">Percentage (%)</option>
+                <option value="FIXED_USD">Fixed Dollar ($)</option>
+              </select>
+            </label>
+          </div>
+
+          <!-- Sizing by % -->
+          <div class="form-row" id="rowSizingPercent">
+            <label>
+              <span>Balance Allocation Per Trade: <strong id="allocVal" style="color:#00f2fe">15%</strong></span>
+              <input type="range" id="settingAllocPercent" min="1" max="50" step="1" value="15" oninput="document.getElementById('allocVal').textContent = this.value + '%'">
+            </label>
+          </div>
+
+          <!-- Sizing by Fixed $ -->
+          <div class="form-row" id="rowSizingFixedUSD" style="display: none;">
+            <label style="display: flex; justify-content: space-between; align-items: center;">
+              <span>Fixed Position Size (USDT):</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color:#00f2fe; font-weight:700;">$</span>
+                <input type="number" id="settingFixedTradeAmountUSD" value="10" min="2" max="10000" step="1" class="form-input" style="width: 100px;">
+              </div>
+            </label>
+          </div>
+
+          <!-- Stop Loss Risk Mode -->
+          <div class="form-row" style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px;">
+            <label style="display: flex; justify-content: space-between; align-items: center;">
+              <span>Stop-Loss Risk Mode:</span>
+              <select id="settingRiskMode" class="form-input" style="width: 170px;" onchange="toggleRiskModeUI()">
+                <option value="PERCENT">Percentage (%)</option>
+                <option value="FIXED_USD">Fixed Dollar ($)</option>
+              </select>
+            </label>
+          </div>
+
+          <!-- Risk by % -->
+          <div class="form-row" id="rowRiskPercent">
+            <label>
+              <span>🛡️ Max Risk Per Trade (Account Loss on SL): <strong id="maxRiskVal" style="color:#ff1744">2.0%</strong></span>
+              <input type="range" id="settingMaxRiskPercent" min="0.5" max="5.0" step="0.5" value="2.0" oninput="document.getElementById('maxRiskVal').textContent = parseFloat(this.value).toFixed(1) + '%'">
+            </label>
+          </div>
+
+          <!-- Risk by Fixed $ (e.g. $1 or $2 max loss) -->
+          <div class="form-row" id="rowRiskFixedUSD" style="display: none;">
+            <label style="display: flex; justify-content: space-between; align-items: center;">
+              <span>🛡️ Max Stop-Loss Loss (e.g. $1 or $2):</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color:#ff1744; font-weight:700;">$</span>
+                <input type="number" id="settingFixedRiskUSD" value="1.0" min="0.1" max="1000" step="0.5" class="form-input" style="width: 100px;">
+              </div>
+            </label>
+          </div>
+
+          <div class="form-row" style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px;">
+            <label>
+              <span>Max Concurrent Positions: <strong id="maxPosVal" style="color:#00f2fe">25</strong></span>
+              <input type="range" id="settingMaxPositions" min="1" max="25" step="1" value="25" oninput="document.getElementById('maxPosVal').textContent = this.value">
+            </label>
+          </div>
+        </div>
+
+
+        <!-- Multi-Timeframe Confirmation Settings -->
+        <div class="settings-group">
+          <h3>🔭 Multi-Timeframe Confirmation Filter</h3>
+          <p class="subtext" style="margin-bottom: 12px;">Fills on 1m. Votes 5m, 15m, and 1h must not be against the side. Dead tapes (ATR under ~0.4%) are skipped. Needs 2 of ADX / SMC / B / RL.</p>
+          
+          <div class="form-row">
+            <select id="settingMtfStrictness" class="form-input">
+              <option value="5m_15m_1h">Must see: 1m fill + 5m, 15m and 1h (default)</option>
+              <option value="5m_1h">1m fill + 5m and 1h</option>
+              <option value="1h">Lighter: 1h only</option>
+              <option value="5m_1h_4h">Strict: 1m + 5m, 1h and 4h</option>
+              <option value="5m">Fast: 1m + 5m only</option>
+              <option value="1m_only">1m only (no MTF)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- AI Confidence & Risk Multipliers -->
+        <div class="settings-group">
+          <h3>🎯 AI Confidence & Target Multipliers</h3>
+          <div class="grid-2-col">
+            <div class="form-row">
+              <label>
+                <span>Min AI Confidence: <strong id="confVal" style="color:#00f2fe">50%</strong></span>
+                <input type="range" id="settingMinConfidence" min="35" max="85" step="1" value="50" oninput="document.getElementById('confVal').textContent = this.value + '%'">
+              </label>
+            </div>
+            <div class="form-row">
+              <label>
+                <span>Min Opportunity Score: <strong id="oppVal" style="color:#00f2fe">55</strong></span>
+                <input type="range" id="settingMinOpportunity" min="35" max="85" step="1" value="55" oninput="document.getElementById('oppVal').textContent = this.value">
+              </label>
+            </div>
+          </div>
+
+          <div class="grid-2-col">
+            <div class="form-row">
+              <label>
+                <span>Position stop (of invested): <strong id="slVal" style="color:#ffb300">-0.8%</strong></span>
+                <input type="range" id="settingPositionStopPercent" min="0.5" max="2.0" step="0.1" value="0.8" oninput="document.getElementById('slVal').textContent = '-' + this.value + '%'">
+              </label>
+            </div>
+            <div class="form-row">
+              <label>
+                <span>Position take-profit (of invested): <strong id="tpVal" style="color:#00e676">+1.6%</strong></span>
+                <input type="range" id="settingPositionTpPercent" min="0.8" max="4.0" step="0.1" value="1.6" oninput="document.getElementById('tpVal').textContent = '+' + this.value + '%'">
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cooldown Durations -->
+        <div class="settings-group">
+          <h3>⏳ Market Cooldown Timers</h3>
+          <div class="grid-2-col">
+            <div class="form-row">
+              <label>
+                <span>Chop/Flat Cooldown: <strong id="chopCdVal" style="color:#ffb300">5 mins</strong></span>
+                <input type="range" id="settingChopCooldown" min="1" max="30" step="1" value="5" oninput="document.getElementById('chopCdVal').textContent = this.value + ' mins'">
+              </label>
+            </div>
+            <div class="form-row">
+              <label>
+                <span>Stop-Loss Cooldown: <strong id="slCdVal" style="color:#ff1744">10 mins</strong></span>
+                <input type="range" id="settingSlCooldown" min="2" max="60" step="2" value="10" oninput="document.getElementById('slCdVal').textContent = this.value + ' mins'">
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Smart Money & Advanced Strategy Toggles -->
+        <div class="settings-group">
+          <h3>🏛️ Smart Money Concepts (SMC) & Advanced Strategy</h3>
+          <p class="subtext" style="margin-bottom: 14px;">Enable or disable advanced institutional analysis layers. PDH/PDL and Session levels act as key support/resistance zones.</p>
+          <div class="toggles-grid">
+            <div class="toggle-row">
+              <div>
+                <strong>🔄 Stop-and-Reverse (SAR Flip)</strong>
+                <p class="toggle-desc">When a Long hits Stop-Loss and the market breaks structure bearishly, instantly open a Short (and vice versa)</p>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settingStopAndReverse">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="toggle-row">
+              <div>
+                <strong>🏛️ SMC Market Structure Engine</strong>
+                <p class="toggle-desc">Detect CHoCH, BOS, Strong/Weak Highs & Lows, Pullback entries (highest-probability institutional setups)</p>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settingSmcEnabled" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="toggle-row">
+              <div>
+                <strong>📅 Previous Day High/Low (PDH/PDL)</strong>
+                <p class="toggle-desc">Fetch daily candles and use yesterday's high & low as key S/R levels for trade bias and signal scoring</p>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settingUsePDHPDL" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="toggle-row">
+              <div>
+                <strong>🕐 Session Levels (Tokyo / London / New York)</strong>
+                <p class="toggle-desc">Track intraday session highs & lows for each market session as additional S/R levels</p>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settingUseSessionLevels" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="toggle-row">
+              <div>
+                <strong>Quality mode (stricter filters, still scans all coins)</strong>
+                <p class="toggle-desc">All 57 coins are analyzed every scan. Cooldown only blocks new entries on that coin. Up to 25 open positions. More 1m trades are samples, not a trained model.</p>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settingQualityMode" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="toggle-row">
+              <div>
+                <strong>London / New York hours only</strong>
+                <p class="toggle-desc">If on, no new entries 22:00–07:00 UTC. Currently off so Asia/Tokyo hours can trade. Stops still run 24h.</p>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settingTradeLiquidHours">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeSettingsModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveSettingsFromModal()">Save & Apply Settings</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

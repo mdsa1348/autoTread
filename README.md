@@ -1,18 +1,24 @@
-# autoTread
+# AutoTread
 
-An Autonomous AI Crypto Trading Bot with TensorFlow.js Deep Learning, Continuous Online Reinforcement, Dynamic Trailing Stop-Loss / Take-Profit Management, 0.1% Fee Accounting, and a Modern Web Dashboard.
+Paper-trading terminal for crypto: multi-timeframe rules, optional TensorFlow helper, trailing stops, and a live dashboard. It is **not** a proven edge and it is **not** autonomous deep reinforcement learning.
 
-## Features
-- **Deep Learning Neural Network:** 3-layer sequential network built with TensorFlow.js.
-- **Continuous Learning & Backpropagation:** Trains online from real trade outcomes.
-- **Dynamic Trailing Stop-Loss:** Locks in profits automatically as prices increase.
-- **Zero API Keys Required:** Ingests live Binance market data for free.
-- **Simulated Paper Trading:** $10,000 USDT demo balance with 0.1% exchange fee deductions.
-- **Real-Time Terminal:** Live charts, AI radar, active position tracking, and control panel.
+## What it actually is
+- Weighted indicator + SMC rules on 1m entries with 5m/1h/4h vetoes
+- Simulated (or optional live futures) broker with fees, ATR stops, and 1R trailing
+- A small neural net that stays **out of scoring** until it has a saved model or 20 trained samples
+- A 5m walk-forward backtest (`npm run backtest` or the dashboard button)
 
 ## Quick Start
 ```bash
 npm install
 npm start
 ```
-Open `http://localhost:3000` in your browser.
+Open `http://localhost:3000`. Quality filters are on by default (fewer trades).
+
+```bash
+npm run backtest
+```
+Walks BTC/ETH/SOL/BNB on ~400 five-minute bars. Treat a losing backtest as the real answer, not the UI win rate.
+
+## Live futures (optional)
+Paper is the default. See `.env.example`. Keep `BINANCE_TESTNET=true` until you have a backtest you accept and have watched paper live.

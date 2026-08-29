@@ -1,0 +1,17 @@
+# Always-on host (not Vercel). Use a paid instance — free web services sleep.
+# Attach a persistent disk at /data so learning survives restarts.
+services:
+  - type: web
+    name: autotread
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: autotread-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: TRADING_MODE
+        value: paper
+      - key: DATA_DIR
+        value: /data
