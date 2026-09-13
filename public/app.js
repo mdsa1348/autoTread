@@ -140,6 +140,7 @@ async function fetchStateAndUpdate() {
     renderActiveChart(data.marketData[activeSymbol]);
     renderAIBrain(data.aiMetrics, data.marketData[activeSymbol], data.fiveMinForecast);
     renderFiveMinForecast(data.fiveMinForecast, data.marketData[activeSymbol]);
+    renderMarketContext(data.marketContext, data.marketData[activeSymbol]);
     renderPositions(data.positions, data.marketData);
     renderHistory(data.tradeHistory, data.tradeHistorySaved || (data.tradeHistory || []).length);
   } catch (err) {
@@ -536,7 +537,7 @@ function renderAIBrain(aiMetrics, coinData, fiveMinForecast) {
       ? 'NN in score (persisted)'
       : `NN off (${total}/${aiMetrics.minTradesForNn || 20} samples)`);
   const cw = aiMetrics.confirmWeights || {};
-  const confirmBits = ['ADX', 'SMC', 'B', 'RL', '5mF']
+  const confirmBits = ['ADX', 'SMC', 'B', 'RL', '5mF', 'FUND', 'LSR', 'FNG', 'BTC']
     .map(k => `${k} ${(Number(cw[k]) || 1).toFixed(2)}`)
     .join(' · ');
   document.getElementById('modelExperienceBadge').textContent = `${wins}W / ${losses}L · ${nnLabel} · confirms ${confirmBits}`;
@@ -618,6 +619,31 @@ function renderFiveMinForecast(book, coinData) {
       <td>${move}</td>
     </tr>`;
   }).join('');
+}
+
+function renderMarketContext(ctx, coinData) {
+  const el = document.getElementById('marketContextLine');
+  if (!el) return;
+  if (!ctx) {
+    el.textContent = 'Context APIs: waiting…';
+    return;
+  }
+  const btc = ctx.btcRegime;
+  const fng = ctx.fearGreed;
+  const sym = (coinData && coinData.symbol) || activeSymbol;
+  const fund = (ctx.funding && (ctx.funding[sym] || ctx.funding.BTCUSDT)) || null;
+  const ls = (ctx.longShort && (ctx.longShort[sym] || ctx.longShort.BTCUSDT)) || null;
+  const votes = (coinData && coinData.analysis && coinData.analysis.marketContext && coinData.analysis.marketContext.votes) || null;
+  const bits = [
+    btc ? `BTC ${btc.side || 'HOLD'} (15m ${btc.ret15m ?? '--'}% / 1h ${btc.ret1h ?? '--'}%)` : 'BTC --',
+    fng ? `F&G ${fng.value} ${fng.classification || ''}` : 'F&G --',
+    fund ? `fund ${fund.ratePct}%` : 'fund --',
+    ls ? `L/S ${(ls.longRatio * 100).toFixed(0)}/${((ls.shortRatio || 0) * 100).toFixed(0)}` : 'L/S --'
+  ];
+  if (votes) {
+    bits.push(`votes FUND=${votes.FUND} LSR=${votes.LSR} FNG=${votes.FNG} BTC=${votes.BTC}`);
+  }
+  el.textContent = `Context: ${bits.join(' · ')}`;
 }
 
 function renderPositions(positions, marketData) {
@@ -720,8 +746,22 @@ function renderHistory(history, savedCount) {
 
 
 // Settings Modal Controls
+function setFieldValue(id, value) {
+  const el = document.getElementById(id);
+  if (!el || value == null) return;
+  if (el.type === 'checkbox') el.checked = !!value;
+  else el.value = value;
+}
+
+function setText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
 function toggleSizingModeUI() {
-  const mode = document.getElementById('settingSizingMode').value;
+  const sel = document.getElementById('settingSizingMode');
+  if (!sel) return;
+  const mode = sel.value;
   const rowPct = document.getElementById('rowSizingPercent');
   const rowFix = document.getElementById('rowSizingFixedUSD');
   if (mode === 'FIXED_USD') {
@@ -734,7 +774,9 @@ function toggleSizingModeUI() {
 }
 
 function toggleRiskModeUI() {
-  const mode = document.getElementById('settingRiskMode').value;
+  const sel = document.getElementById('settingRiskMode');
+  if (!sel) return;
+  const mode = sel.value;
   const rowPct = document.getElementById('rowRiskPercent');
   const rowFix = document.getElementById('rowRiskFixedUSD');
   if (mode === 'FIXED_USD') {
@@ -748,79 +790,80 @@ function toggleRiskModeUI() {
 
 function openSettingsModal() {
   const modal = document.getElementById('settingsModal');
-  if (!modal) return;
-
-  if (currentSettings) {
-    // Sizing Mode & Values
-    const sizingMode = currentSettings.sizingMode || 'PERCENT';
-    const szSelect = document.getElementById('settingSizingMode');
-    if (szSelect) szSelect.value = sizingMode;
-    const allocVal = Math.round((currentSettings.allocationPercent || 0.15) * 100);
-    document.getElementById('settingAllocPercent').value = allocVal;
-    document.getElementById('allocVal').textContent = allocVal + '%';
-    const fixSzEl = document.getElementById('settingFixedTradeAmountUSD');
-    if (fixSzEl) fixSzEl.value = currentSettings.fixedTradeAmountUSD || 10;
-    toggleSizingModeUI();
-
-    // Risk Mode & Values
-    const riskMode = currentSettings.riskMode || 'PERCENT';
-    const rkSelect = document.getElementById('settingRiskMode');
-    if (rkSelect) rkSelect.value = riskMode;
-    const maxRiskVal = ((currentSettings.maxRiskPerTradePercent || 0.02) * 100).toFixed(1);
-    const riskEl = document.getElementById('settingMaxRiskPercent');
-    if (riskEl) riskEl.value = maxRiskVal;
-    const riskValEl = document.getElementById('maxRiskVal');
-    if (riskValEl) riskValEl.textContent = maxRiskVal + '%';
-    const fixRkEl = document.getElementById('settingFixedRiskUSD');
-    if (fixRkEl) fixRkEl.value = currentSettings.fixedRiskUSD || 1.0;
-    toggleRiskModeUI();
-
-    document.getElementById('settingMaxPositions').value = currentSettings.maxPositions || 25;
-    document.getElementById('maxPosVal').textContent = currentSettings.maxPositions || 25;
-    document.getElementById('settingMinConfidence').value = currentSettings.minConfidence || 50;
-    document.getElementById('confVal').textContent = (currentSettings.minConfidence || 50) + '%';
-    document.getElementById('settingMinOpportunity').value = currentSettings.minOpportunityScore || 55;
-    document.getElementById('oppVal').textContent = currentSettings.minOpportunityScore || 55;
-    const stopPct = currentSettings.positionStopPercent || 0.8;
-    const tpPct = currentSettings.positionTpPercent || 1.6;
-    document.getElementById('settingPositionStopPercent').value = stopPct;
-    document.getElementById('slVal').textContent = '-' + stopPct + '%';
-    document.getElementById('settingPositionTpPercent').value = tpPct;
-    document.getElementById('tpVal').textContent = '+' + tpPct + '%';
-    document.getElementById('settingMtfStrictness').value = currentSettings.mtfStrictness || '5m_1h';
-    document.getElementById('settingChopCooldown').value = currentSettings.chopCooldownMins || 5;
-    document.getElementById('chopCdVal').textContent = (currentSettings.chopCooldownMins || 5) + ' mins';
-    document.getElementById('settingSlCooldown').value = currentSettings.slCooldownMins || 10;
-    document.getElementById('slCdVal').textContent = (currentSettings.slCooldownMins || 10) + ' mins';
-    // Toggles
-    const sarEl = document.getElementById('settingStopAndReverse');
-    if (sarEl) sarEl.checked = !!currentSettings.stopAndReverse;
-    const smcEl = document.getElementById('settingSmcEnabled');
-    if (smcEl) smcEl.checked = currentSettings.smcEnabled !== false;
-    const pdhEl = document.getElementById('settingUsePDHPDL');
-    if (pdhEl) pdhEl.checked = currentSettings.usePDHPDL !== false;
-    const sessEl = document.getElementById('settingUseSessionLevels');
-    if (sessEl) sessEl.checked = currentSettings.useSessionLevels !== false;
-    const qEl = document.getElementById('settingQualityMode');
-    if (qEl) qEl.checked = currentSettings.qualityMode !== false;
-    const liqEl = document.getElementById('settingTradeLiquidHours');
-    if (liqEl) liqEl.checked = !!currentSettings.tradeLiquidHoursOnly;
+  if (!modal) {
+    console.error('[UI] settingsModal missing from page');
+    return;
   }
-
-  const tokenEl = document.getElementById('settingControlToken');
-  if (tokenEl) tokenEl.value = controlToken;
-
-  const liveBox = document.getElementById('liveBalanceHint');
-  if (liveBox && runtimeInfo) {
-    liveBox.style.display = runtimeInfo.mode === 'live' ? 'block' : 'none';
-  }
-
+  // Show first so a later field error cannot block the panel
   modal.style.display = 'flex';
+  modal.setAttribute('aria-hidden', 'false');
+
+  try {
+    if (currentSettings) {
+      const sizingMode = currentSettings.sizingMode || 'PERCENT';
+      setFieldValue('settingSizingMode', sizingMode);
+      const allocVal = Math.round((currentSettings.allocationPercent || 0.15) * 100);
+      setFieldValue('settingAllocPercent', allocVal);
+      setText('allocVal', allocVal + '%');
+      setFieldValue('settingFixedTradeAmountUSD', currentSettings.fixedTradeAmountUSD || 10);
+      toggleSizingModeUI();
+
+      const riskMode = currentSettings.riskMode || 'PERCENT';
+      setFieldValue('settingRiskMode', riskMode);
+      const maxRiskVal = ((currentSettings.maxRiskPerTradePercent || 0.02) * 100).toFixed(1);
+      setFieldValue('settingMaxRiskPercent', maxRiskVal);
+      setText('maxRiskVal', maxRiskVal + '%');
+      setFieldValue('settingFixedRiskUSD', currentSettings.fixedRiskUSD || 1.0);
+      toggleRiskModeUI();
+
+      setFieldValue('settingMaxPositions', currentSettings.maxPositions || 25);
+      setText('maxPosVal', String(currentSettings.maxPositions || 25));
+      setFieldValue('settingMinConfidence', currentSettings.minConfidence || 50);
+      setText('confVal', (currentSettings.minConfidence || 50) + '%');
+      setFieldValue('settingMinOpportunity', currentSettings.minOpportunityScore || 55);
+      setText('oppVal', String(currentSettings.minOpportunityScore || 55));
+      const stopPct = currentSettings.positionStopPercent || 0.8;
+      const tpPct = currentSettings.positionTpPercent || 1.6;
+      setFieldValue('settingPositionStopPercent', stopPct);
+      setText('slVal', '-' + stopPct + '%');
+      setFieldValue('settingPositionTpPercent', tpPct);
+      setText('tpVal', '+' + tpPct + '%');
+      setFieldValue('settingMtfStrictness', currentSettings.mtfStrictness || '5m_15m_1h');
+      setFieldValue('settingChopCooldown', currentSettings.chopCooldownMins || 5);
+      setText('chopCdVal', (currentSettings.chopCooldownMins || 5) + ' mins');
+      setFieldValue('settingSlCooldown', currentSettings.slCooldownMins || 10);
+      setText('slCdVal', (currentSettings.slCooldownMins || 10) + ' mins');
+
+      const sarEl = document.getElementById('settingStopAndReverse');
+      if (sarEl) sarEl.checked = !!currentSettings.stopAndReverse;
+      const smcEl = document.getElementById('settingSmcEnabled');
+      if (smcEl) smcEl.checked = currentSettings.smcEnabled !== false;
+      const pdhEl = document.getElementById('settingUsePDHPDL');
+      if (pdhEl) pdhEl.checked = currentSettings.usePDHPDL !== false;
+      const sessEl = document.getElementById('settingUseSessionLevels');
+      if (sessEl) sessEl.checked = currentSettings.useSessionLevels !== false;
+      const qEl = document.getElementById('settingQualityMode');
+      if (qEl) qEl.checked = currentSettings.qualityMode !== false;
+      const liqEl = document.getElementById('settingTradeLiquidHours');
+      if (liqEl) liqEl.checked = !!currentSettings.tradeLiquidHoursOnly;
+    }
+
+    setFieldValue('settingControlToken', controlToken || '');
+    const liveBox = document.getElementById('liveBalanceHint');
+    if (liveBox && runtimeInfo) {
+      liveBox.style.display = runtimeInfo.mode === 'live' ? 'block' : 'none';
+    }
+  } catch (err) {
+    console.error('[UI] settings fill failed (modal still open):', err);
+  }
 }
 
 function closeSettingsModal() {
   const modal = document.getElementById('settingsModal');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
+  }
 }
 
 async function saveSettingsFromModal() {
@@ -838,26 +881,26 @@ async function saveSettingsFromModal() {
 
   const payload = {
     sizingMode:             sizingMode,
-    allocationPercent:      parseFloat(document.getElementById('settingAllocPercent').value) / 100,
+    allocationPercent:      parseFloat(document.getElementById('settingAllocPercent')?.value || 15) / 100,
     fixedTradeAmountUSD:    fixTradeUSD,
     riskMode:               riskMode,
     maxRiskPerTradePercent: maxRiskPercent,
     fixedRiskUSD:           fixRiskUSD,
-    maxPositions:           parseInt(document.getElementById('settingMaxPositions').value),
-    minConfidence:          parseInt(document.getElementById('settingMinConfidence').value),
-    minOpportunityScore:    parseInt(document.getElementById('settingMinOpportunity').value),
+    maxPositions:           parseInt(document.getElementById('settingMaxPositions')?.value || 5, 10),
+    minConfidence:          parseInt(document.getElementById('settingMinConfidence')?.value || 55, 10),
+    minOpportunityScore:    parseInt(document.getElementById('settingMinOpportunity')?.value || 58, 10),
     slMode:                 'POSITION',
-    positionStopPercent:    parseFloat(document.getElementById('settingPositionStopPercent').value),
-    positionTpPercent:      parseFloat(document.getElementById('settingPositionTpPercent').value),
-    mtfStrictness:          document.getElementById('settingMtfStrictness').value,
-    chopCooldownMins:       parseInt(document.getElementById('settingChopCooldown').value),
-    slCooldownMins:         parseInt(document.getElementById('settingSlCooldown').value),
-    stopAndReverse:         getBool('settingStopAndReverse'),
+    positionStopPercent:    parseFloat(document.getElementById('settingPositionStopPercent')?.value || 0.8),
+    positionTpPercent:      parseFloat(document.getElementById('settingPositionTpPercent')?.value || 1.6),
+    mtfStrictness:          document.getElementById('settingMtfStrictness')?.value || '5m_15m_1h',
+    chopCooldownMins:       parseInt(document.getElementById('settingChopCooldown')?.value || 3, 10),
+    slCooldownMins:         parseInt(document.getElementById('settingSlCooldown')?.value || 12, 10),
+    stopAndReverse:         getBool('settingStopAndReverse', false),
     smcEnabled:             getBool('settingSmcEnabled'),
     usePDHPDL:              getBool('settingUsePDHPDL'),
     useSessionLevels:       getBool('settingUseSessionLevels'),
     qualityMode:            getBool('settingQualityMode'),
-    tradeLiquidHoursOnly:   getBool('settingTradeLiquidHours')
+    tradeLiquidHoursOnly:   getBool('settingTradeLiquidHours', false)
   };
 
 
@@ -886,6 +929,12 @@ async function saveSettingsFromModal() {
     fetchStateAndUpdate();
   }
 }
+
+window.openSettingsModal = openSettingsModal;
+window.closeSettingsModal = closeSettingsModal;
+window.saveSettingsFromModal = saveSettingsFromModal;
+window.toggleSizingModeUI = toggleSizingModeUI;
+window.toggleRiskModeUI = toggleRiskModeUI;
 
 async function setCustomBalance() {
   if (runtimeInfo && runtimeInfo.mode === 'live') {
@@ -946,8 +995,29 @@ async function manualClose(positionId) {
 
 // Boot UI
 window.addEventListener('DOMContentLoaded', () => {
-  initChart();
-  initEquityChart();
+  try {
+    if (typeof Chart !== 'undefined') {
+      initChart();
+      initEquityChart();
+    } else {
+      console.warn('[UI] Chart.js not loaded — charts disabled, settings still work');
+    }
+  } catch (err) {
+    console.error('[UI] chart init failed:', err);
+  }
+  const settingsBtn = document.getElementById('openSettingsBtn');
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      openSettingsModal();
+    });
+  }
+  const modal = document.getElementById('settingsModal');
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeSettingsModal();
+    });
+  }
   fetchStateAndUpdate();
   setInterval(fetchStateAndUpdate, 3000);
 });

@@ -7,7 +7,7 @@ const fs = require('fs');
 
 const MAX_PER_SYMBOL = 1440; // 24h of 1-minute snapshots
 const MAX_PATH_ON_TRADE = 180;
-const MIN_ATR_PCT = 0.0015; // 0.15% of price on 1m ATR — 0.4% blocked almost all live tapes
+const MIN_ATR_PCT = 0.002; // 0.20% of price — 0.15% was still fee-thin on 1m tape
 
 function slimAnalysis(a) {
   if (!a) return null;
@@ -212,14 +212,30 @@ function buildEntrySight(analysis, side) {
   const rlAct = analysis?.rl?.action || null;
   const rlOk = rlAct === dir;
   const f = analysis?.fiveMin;
-  const fSkillOk = (f?.accuracy || 0) >= 0.5;
+  // 5mF only votes when skill is clearly above coin-flip (live book sat ~46%)
+  const fSkillOk = (f?.accuracy || 0) >= 0.52;
   const fOk = !!(f && fSkillOk && f.lastHit === dir);
+  const votes = analysis?.marketContext?.votes || {};
+  const fundOk = votes.FUND === dir;
+  const lsrOk = votes.LSR === dir;
+  const fngOk = votes.FNG === dir;
+  const btcOk = votes.BTC === dir;
   const confirms = [];
   if (adxOk) confirms.push('ADX');
   if (smcOk) confirms.push('SMC');
   if (bOk) confirms.push('B');
   if (rlOk) confirms.push('RL');
   if (fOk) confirms.push('5mF');
+  if (fundOk) confirms.push('FUND');
+  if (lsrOk) confirms.push('LSR');
+  if (fngOk) confirms.push('FNG');
+  if (btcOk) confirms.push('BTC');
+  // ADX+B alone printed 21% WR / −$25 live — need structure or external context
+  const hasStructure = confirms.includes('SMC')
+    || confirms.includes('RL')
+    || confirms.includes('5mF')
+    || confirms.includes('FUND')
+    || confirms.includes('BTC');
   const agreed = [];
   if (m5Agree) agreed.push('5m');
   if (m15Agree) agreed.push('15m');
@@ -245,8 +261,14 @@ function buildEntrySight(analysis, side) {
     rlOk,
     fiveMin: f ? { side: f.side, lastHit: f.lastHit, accuracy: f.accuracy } : null,
     fiveMinOk: fOk,
+    fundOk,
+    lsrOk,
+    fngOk,
+    btcOk,
+    marketContext: analysis?.marketContext || null,
     confirms,
     confirmHits: confirms.length,
+    hasStructure,
     agreed,
     summary: agreed.join('+') || 'none'
   };

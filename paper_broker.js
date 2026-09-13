@@ -246,16 +246,15 @@ class PaperBroker {
 
   applyPositionPnlTrail(pos, pnlPct) {
     const risk = pos.positionRiskPercent || 0.8;
-    // Do not trail at 0.5R — that was locking +0.01% crumbs after fees.
-    // Only protect after a full 1R (+0.8%), keep ~0.30% so the close stays green.
+    // Only protect after a full 1R; lock ~0.45% so fees do not erase the win.
     if (pnlPct >= risk) {
-      if ((pos.slPnlPercent || -risk) < 0.30) {
-        pos.slPnlPercent = 0.30;
+      if ((pos.slPnlPercent || -risk) < 0.45) {
+        pos.slPnlPercent = 0.45;
         pos.trailingActivated = true;
       }
     }
     if (pnlPct >= risk * 1.25) {
-      const lock = Math.max(0.30, pnlPct - risk * 0.5);
+      const lock = Math.max(0.45, pnlPct - risk * 0.45);
       if (lock > (pos.slPnlPercent || 0)) pos.slPnlPercent = lock;
       pos.trailingActivated = true;
     }
@@ -325,6 +324,20 @@ class PaperBroker {
       } else if (pnlPct >= tpPnl) {
         shouldClose = true;
         exitReason = 'Position take-profit';
+      } else {
+        // Cut losers early when thesis dies or the trade goes stale (losses held ~3h).
+        const holdMs = pos.entryTime ? (Date.now() - new Date(pos.entryTime).getTime()) : 0;
+        const holdMin = holdMs / 60000;
+        const sig = exitAnalysis?.signal || null;
+        const againstLong = pos.side === 'LONG' && (sig === 'SHORT' || sig === 'SELL' || sig === 'CHOP_SKIP');
+        const againstShort = pos.side === 'SHORT' && (sig === 'BUY' || sig === 'CHOP_SKIP');
+        if ((againstLong || againstShort) && pnlPct < 0.35 && holdMin >= 8) {
+          shouldClose = true;
+          exitReason = 'Thesis faded';
+        } else if (holdMin >= 90 && pnlPct < 0.35) {
+          shouldClose = true;
+          exitReason = 'Stale exit';
+        }
       }
 
       if (shouldClose) {

@@ -13,7 +13,7 @@ const secondOpinion = require('./second_opinion');
 const { rlPolicy } = require('./rl_policy');
 const { buildEntrySight } = require('./analysis_log');
 const MIN_NN_TRADES = 20;
-const TRAINABLE_CONFIRMS = ['ADX', 'SMC', 'B', 'RL', '5mF'];
+const TRAINABLE_CONFIRMS = ['ADX', 'SMC', 'B', 'RL', '5mF', 'FUND', 'LSR', 'FNG', 'BTC'];
 
 // Indicator helper functions
 function calcEMA(values, period) {
@@ -890,6 +890,7 @@ class AIBrain {
     this.experienceMemory = savedState?.experienceMemory || [];
     this.confirmWeights = {
       '5m': 1, '15m': 1, '1h': 1, ATR: 1, ADX: 1, SMC: 1, B: 1, RL: 1, '5mF': 1,
+      FUND: 1, LSR: 1, FNG: 1, BTC: 1,
       ...(savedState?.confirmWeights || {})
     };
     this.nnFrozen = false;

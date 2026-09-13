@@ -34,7 +34,7 @@
         <span id="headerEquity" class="value glow-text">$10,000.00</span>
       </div>
       <div class="header-actions">
-        <button class="btn btn-outline" onclick="openSettingsModal()">⚙️ Settings & Risk</button>
+        <button type="button" id="openSettingsBtn" class="btn btn-outline" onclick="openSettingsModal()">⚙️ Settings & Risk</button>
         <button id="toggleBotBtn" class="btn btn-outline" onclick="toggleBot()">Pause AI Bot</button>
         <button class="btn btn-danger-outline" onclick="resetDemo()">Reset Demo</button>
       </div>
@@ -234,6 +234,7 @@
               <span class="badge" id="fiveMinSkillBadge">5m skill: --</span>
             </div>
             <p class="subtext" id="fiveMinNowLine">Select a coin. The bot calls LONG/SHORT for the next 5 minutes, then checks the real 1m close.</p>
+            <p class="subtext" id="marketContextLine">Context APIs: loading BTC / funding / Fear&amp;Greed…</p>
             <div class="table-responsive">
               <table class="data-table five-min-table">
                 <thead>
@@ -259,7 +260,7 @@
     <section class="positions-section">
       <div class="panel-header">
         <h3>⚡ Active Positions & Trailing SL/TP Monitor</h3>
-        <span class="subtext">Stops and targets are on position PnL. Trail only after a full +0.8% (1R), then keep about +0.30% so winners are not locked at +0.01% after fees.</span>
+        <span class="subtext">Stops and targets are on position PnL. Trail only after a full +0.8% (1R), then keep about +0.45% so winners are not locked as crumbs after fees.</span>
       </div>
       <div class="table-responsive">
         <table class="data-table">

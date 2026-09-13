@@ -12,6 +12,7 @@ const app = express();
 const server = http.createServer(app);
 const { DATA_FILE, DATA_BACKUP_FILE, MINUTE_LOG_FILE } = require('./paths');
 const { FiveMinBook } = require('./five_min_forecast');
+const marketContext = require('./market_context');
 const {
   MinuteBook,
   slimClosedForDisk,
@@ -164,10 +165,11 @@ if (settings.positionStopPercent === undefined) settings.positionStopPercent = 0
 if (settings.positionTpPercent === undefined) settings.positionTpPercent = 1.6;
 settings.slMode = 'POSITION';
 settings = applyQualityCaps(settings);
-settings.maxPositions = 8;
-settings.maxSameDirection = 3;
+settings.maxPositions = 5;
+settings.maxSameDirection = 2;
 settings.tradeLiquidHoursOnly = false;
-settings.mtfStrictness = '5m_1h';
+settings.mtfStrictness = '5m_15m_1h';
+settings.slCooldownMins = Math.max(settings.slCooldownMins || 8, 12);
 const ai = new AIBrain(savedState.ai);
 
 if (exchange.TRADING_MODE === 'live') {
@@ -391,19 +393,36 @@ function qualityBlock(analysis, side) {
     return `ATR too small vs fees (need ~${(MIN_ATR_PCT * 100).toFixed(2)}%)`;
   }
   const m5 = analysis.mtf && analysis.mtf['5m'];
+  const m15 = analysis.mtf && analysis.mtf['15m'];
   const h1 = analysis.mtf && analysis.mtf['1h'];
-  if (dir === 'LONG' && (m5 === 'BEARISH' || h1 === 'BEARISH')) return '5m/1h against the long';
-  if (dir === 'SHORT' && (m5 === 'BULLISH' || h1 === 'BULLISH')) return '5m/1h against the short';
+  if (dir === 'LONG' && (m5 === 'BEARISH' || m15 === 'BEARISH' || h1 === 'BEARISH')) {
+    return '5m/15m/1h against the long';
+  }
+  if (dir === 'SHORT' && (m5 === 'BULLISH' || m15 === 'BULLISH' || h1 === 'BULLISH')) {
+    return '5m/15m/1h against the short';
+  }
   const f5 = analysis.fiveMin;
   if (f5 && f5.side && f5.side !== 'HOLD' && f5.side !== dir) {
     return `5m forecast is ${f5.side}, not ${dir}`;
+  }
+  // Alts usually follow BTC — do not long alts into a BTC dump (or short into melt-up)
+  const btc = analysis.marketContext?.btcRegime || marketContext.cache.btcRegime;
+  const sym = analysis.symbol || null;
+  if (sym && sym !== 'BTCUSDT' && btc) {
+    if (dir === 'LONG' && btc.side === 'SHORT') return 'BTC dumping — skip alt long';
+    if (dir === 'SHORT' && btc.side === 'LONG') return 'BTC ripping — skip alt short';
   }
   analysis.entrySight = buildEntrySight(analysis, dir);
   if ((analysis.entrySight.confirmHits || 0) < 2) {
     const who = analysis.entrySight.confirms && analysis.entrySight.confirms.length
       ? analysis.entrySight.confirms.join('+')
       : 'none';
-    return `Not confident (${who} — need 2 of ADX/SMC/B/RL/5mF)`;
+    return `Not confident (${who} — need 2 confirms)`;
+  }
+  // Live: ADX+B alone was 21% WR — require SMC/RL/5mF/FUND/BTC
+  if (!analysis.entrySight.hasStructure) {
+    const who = (analysis.entrySight.confirms || []).join('+') || 'none';
+    return `Weak structure (${who} — need SMC/RL/5mF/FUND/BTC)`;
   }
   return null;
 }
@@ -506,6 +525,19 @@ async function marketTradingTick() {
   const batchSize = 8;
   const candidates = [];
 
+  // Free context APIs — BTC regime + funding / L-S / Fear&Greed (trainable votes)
+  try {
+    const btcBars = klineStore1m.BTCUSDT || [];
+    const btcCloses = btcBars.map(b => b.close);
+    const focus = [
+      ...broker.positions.map(p => p.symbol),
+      ...WATCHED_COINS.slice(0, 8)
+    ];
+    await marketContext.refreshContext({ symbols: focus, btcCloses });
+  } catch (e) {
+    /* non-fatal */
+  }
+
   for (let i = 0; i < WATCHED_COINS.length; i += batchSize) {
     const batch = WATCHED_COINS.slice(i, i + batchSize);
 
@@ -544,14 +576,24 @@ async function marketTradingTick() {
         candlesDaily,
         { ...flags, symbol, candles15m }
       );
+      analysis.symbol = symbol;
+      marketContext.attachContext(analysis, symbol);
       const fiveMin = fiveMinBook.observe(symbol, currentPrice, analysis);
       if (analysis.signal === 'BUY' || analysis.signal === 'SHORT') {
         analysis.entrySight = buildEntrySight(analysis, analysis.signal === 'SHORT' ? 'SHORT' : 'LONG');
       }
       if (fiveMin.resolved && !fiveMin.resolved.skipped) {
-        const bump = fiveMin.resolved.hit ? 0.04 : -0.05;
-        const cur = Number(ai.confirmWeights['5mF'] ?? 1);
-        ai.confirmWeights['5mF'] = Math.max(0.3, Math.min(2.5, cur + bump));
+        const skill = fiveMinBook.accuracy();
+        // Do not train 5mF weight up while skill is below coin-flip
+        if (skill >= 0.52 || !fiveMin.resolved.hit) {
+          const bump = fiveMin.resolved.hit ? 0.04 : -0.05;
+          const cur = Number(ai.confirmWeights['5mF'] ?? 1);
+          ai.confirmWeights['5mF'] = Math.max(0.3, Math.min(2.5, cur + bump));
+        }
+        if (skill < 0.5) {
+          const cur = Number(ai.confirmWeights['5mF'] ?? 1);
+          if (cur > 0.5) ai.confirmWeights['5mF'] = Math.max(0.3, cur - 0.02);
+        }
       }
 
       if (analysis.signal === 'CHOP_SKIP' && !isCooldown) {
@@ -757,6 +799,7 @@ app.get('/api/state', async (req, res) => {
       accuracy: fiveMinBook.accuracy(),
       recent: (fiveMinBook.recent || []).slice(0, 20)
     },
+    marketContext: marketContext.snapshot(),
     performance: summarize(broker),
     lastBacktest,
     backtestRunning,
