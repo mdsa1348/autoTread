@@ -7,6 +7,7 @@ const path = require('path');
 const { AIBrain } = require('./ai_engine');
 const exchange = require('./exchange');
 const { rlPolicy } = require('./rl_policy');
+const { WATCHED_COINS } = require('./coins');
 
 const FLAGS = { smcEnabled: true, useSessionLevels: true, usePDHPDL: true, useNeuralNet: false };
 
@@ -16,11 +17,14 @@ function loadBackup() {
   const file = path.join(__dirname, 'data_store.pre-restart.json');
   const live = path.join(__dirname, 'data_store.json');
   const rows = [];
+  const seen = new Set();
   for (const f of [file, live]) {
     if (!fs.existsSync(f)) continue;
     try {
       const raw = JSON.parse(fs.readFileSync(f, 'utf8'));
       for (const t of raw.broker?.tradeHistory || []) {
+        if (t.id && seen.has(t.id)) continue;
+        if (t.id) seen.add(t.id);
         if (!Array.isArray(t.analysis?.features) || t.analysis.features.length !== 15) continue;
         const reward = Math.max(-0.06, Math.min(0.06, (t.profitPercent || 0) / 100));
         const action = t.side === 'SHORT' ? 'SHORT' : 'LONG';
@@ -40,7 +44,7 @@ async function main() {
   const rows = loadBackup();
   console.log(`[RL] closed-trade lessons: ${rows.length}`);
 
-  for (const symbol of ['BTCUSDT', 'ETHUSDT', 'SOLUSDT']) {
+  for (const symbol of WATCHED_COINS) {
     const start = Date.now() - 10 * 24 * 60 * 60 * 1000;
     const bars = await exchange.fetchKlinesSince(symbol, '1h', start);
     const daily = await exchange.fetchKlines(symbol, '1d', 8);

@@ -6,11 +6,13 @@ const { AIBrain } = require('./ai_engine');
 const { PaperBroker } = require('./paper_broker');
 const { LiveBroker } = require('./live_broker');
 const exchange = require('./exchange');
+const exchangeCcxt = require('./exchange_ccxt');   // multi-exchange via CCXT
+const newsFeed = require('./news_feed');            // live news + sentiment feed
 const { runBacktest, summarize, aggregate } = require('./backtest');
 
 const app = express();
 const server = http.createServer(app);
-const { DATA_FILE, DATA_BACKUP_FILE, MINUTE_LOG_FILE } = require('./paths');
+const { DATA_FILE, DATA_BACKUP_FILE, MINUTE_LOG_FILE, ARCHIVE_DIR } = require('./paths');
 const { FiveMinBook } = require('./five_min_forecast');
 const marketContext = require('./market_context');
 const {
@@ -33,20 +35,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-const WATCHED_COINS = [
-  'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
-  'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'SUIUSDT', 'LINKUSDT',
-  'NEARUSDT', 'PEPEUSDT', 'SHIBUSDT', 'DOTUSDT', 'LTCUSDT',
-  'APTUSDT', 'ARBUSDT', 'OPUSDT', 'INJUSDT', 'TIAUSDT',
-  'RENDERUSDT', 'FETUSDT', 'AAVEUSDT', 'POLUSDT', 'TONUSDT',
-  'TRXUSDT', 'WLDUSDT', 'UNIUSDT', 'ATOMUSDT', 'FILUSDT',
-  'BCHUSDT', 'ETCUSDT', 'XLMUSDT', 'ALGOUSDT', 'VETUSDT',
-  'HBARUSDT', 'SEIUSDT', 'CRVUSDT', 'LDOUSDT', 'ENAUSDT',
-  'ONDOUSDT', 'TAOUSDT', 'GALAUSDT', 'SANDUSDT', 'MANAUSDT',
-  'IMXUSDT', 'STXUSDT', 'ENSUSDT', 'RUNEUSDT', 'ORDIUSDT',
-  'WIFUSDT', 'BONKUSDT', 'FLOKIUSDT', 'JUPUSDT', 'STRKUSDT',
-  'ZKUSDT', 'PYTHUSDT'
-];
+const { WATCHED_COINS } = require('./coins');
 
 const DEFAULT_SETTINGS = {
   sizingMode: 'PERCENT',
@@ -55,25 +44,25 @@ const DEFAULT_SETTINGS = {
   riskMode: 'PERCENT',
   maxRiskPerTradePercent: 0.01,
   fixedRiskUSD: 1.0,
-  maxPositions: 25,
-  minConfidence: 55,
-  minOpportunityScore: 58,
+  maxPositions: 10,
+  minConfidence: 62,
+  minOpportunityScore: 65,
   slMultiplier: 1.8,
   tpMultiplier: 3.0,
   slMode: 'POSITION',
-  positionStopPercent: 0.8,
-  positionTpPercent: 1.6,
-  mtfStrictness: '5m_1h',
-  chopCooldownMins: 3,
-  slCooldownMins: 8,
+  positionStopPercent: 1.2,
+  positionTpPercent: 3.0,
+  mtfStrictness: '5m_15m_1h',
+  chopCooldownMins: 5,
+  slCooldownMins: 15,
   stopAndReverse: false,
   usePDHPDL: true,
   useSessionLevels: true,
   smcEnabled: true,
   qualityMode: true,
   tradeLiquidHoursOnly: false,
-  maxSameDirection: 15,
-  maxDailyLossPercent: 3
+  maxSameDirection: 8,
+  maxDailyLossPercent: 4
 };
 
 const cooldownMap = {};
@@ -93,10 +82,14 @@ function tryParseJsonFile(file) {
 
 function quarantineCorrupt(file) {
   if (!file || !fs.existsSync(file)) return;
-  const dest = String(file).replace(/\.json$/i, `.corrupt-${Date.now()}.json`);
+  // Always quarantine to D:\AutoTread_data\archive (or LARGE_DATA_DIR/archive)
+  // so corrupt files never pile up on C drive.
+  if (!fs.existsSync(ARCHIVE_DIR)) fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
+  const basename = path.basename(file).replace(/\.json$/i, `.corrupt-${Date.now()}.json`);
+  const dest = path.join(ARCHIVE_DIR, basename);
   try {
     fs.copyFileSync(file, dest);
-    console.error(`[BOOT] Quarantined unreadable ${path.basename(file)} → ${path.basename(dest)}`);
+    console.error(`[BOOT] Quarantined unreadable ${path.basename(file)} → archive/${basename}`);
   } catch (e) {
     console.error('[BOOT] Could not quarantine corrupt store:', e.message);
   }
@@ -143,33 +136,29 @@ function applyQualityCaps(s) {
     next.maxPositions = Math.min(25, Math.max(1, Number(next.maxPositions) || 25));
     return next;
   }
-  next.maxPositions = Math.min(25, Math.max(1, Number(next.maxPositions) || 25));
-  next.maxSameDirection = Math.min(20, Math.max(1, Number(next.maxSameDirection) || 15));
+  next.maxPositions = Math.min(20, Math.max(1, Number(next.maxPositions) || 10));
+  next.maxSameDirection = Math.min(15, Math.max(1, Number(next.maxSameDirection) || 8));
   next.stopAndReverse = false;
-  next.minConfidence = Math.min(Math.max(Number(next.minConfidence) || 55, 50), 70);
-  next.minOpportunityScore = Math.min(Math.max(Number(next.minOpportunityScore) || 58, 50), 75);
-  next.chopCooldownMins = Math.min(Math.max(Number(next.chopCooldownMins) || 3, 2), 8);
-  next.slCooldownMins = Math.min(Math.max(Number(next.slCooldownMins) || 8, 4), 15);
+  next.minConfidence = Math.min(Math.max(Number(next.minConfidence) || 62, 55), 85);
+  next.minOpportunityScore = Math.min(Math.max(Number(next.minOpportunityScore) || 65, 58), 90);
+  next.chopCooldownMins = Math.min(Math.max(Number(next.chopCooldownMins) || 5, 2), 20);
+  next.slCooldownMins = Math.min(Math.max(Number(next.slCooldownMins) || 15, 5), 60);
   next.slMode = 'POSITION';
-  next.positionStopPercent = Math.min(Math.max(Number(next.positionStopPercent) || 0.8, 0.5), 2);
-  next.positionTpPercent = Math.min(Math.max(Number(next.positionTpPercent) || 1.6, 0.8), 4);
+  next.positionStopPercent = Math.min(Math.max(Number(next.positionStopPercent) || 1.2, 0.8), 3);
+  next.positionTpPercent = Math.min(Math.max(Number(next.positionTpPercent) || 3.0, 1.5), 6);
+  if (!next.mtfStrictness || next.mtfStrictness === 'any') next.mtfStrictness = '5m_15m_1h';
   return next;
 }
 
 let settings = applyQualityCaps({ ...DEFAULT_SETTINGS, ...(savedState.settings || {}) });
 if (settings.qualityMode === undefined) settings.qualityMode = true;
 if (settings.tradeLiquidHoursOnly === undefined) settings.tradeLiquidHoursOnly = false;
-if (settings.maxSameDirection === undefined) settings.maxSameDirection = 15;
-if (settings.maxDailyLossPercent === undefined) settings.maxDailyLossPercent = 3;
-if (settings.positionStopPercent === undefined) settings.positionStopPercent = 0.8;
-if (settings.positionTpPercent === undefined) settings.positionTpPercent = 1.6;
+if (settings.maxSameDirection === undefined) settings.maxSameDirection = 8;
+if (settings.maxDailyLossPercent === undefined) settings.maxDailyLossPercent = 4;
+if (settings.positionStopPercent === undefined) settings.positionStopPercent = 1.2;
+if (settings.positionTpPercent === undefined) settings.positionTpPercent = 3.0;
 settings.slMode = 'POSITION';
 settings = applyQualityCaps(settings);
-settings.maxPositions = 5;
-settings.maxSameDirection = 2;
-settings.tradeLiquidHoursOnly = false;
-settings.mtfStrictness = '5m_15m_1h';
-settings.slCooldownMins = Math.max(settings.slCooldownMins || 8, 12);
 const ai = new AIBrain(savedState.ai);
 
 if (exchange.TRADING_MODE === 'live') {
@@ -187,12 +176,14 @@ minuteBook.load(MINUTE_LOG_FILE);
 const fiveMinBook = new FiveMinBook(savedState.fiveMin || null);
 let isBotActive = exchange.TRADING_MODE !== 'live';
 let tickInFlight = false;
+let tickStartTime = 0;
 let posTickInFlight = false;
 let lastScanSkipLog = 0;
 let klineSocket = null;
 let lastBacktest = null;
 let backtestRunning = false;
 let netOnline = true;
+let lastBackupTime = 0;
 
 function persistState() {
   try {
@@ -223,6 +214,15 @@ function persistState() {
     fs.writeFileSync(tmp, payload, 'utf8');
     fs.copyFileSync(tmp, DATA_FILE);
     try { fs.unlinkSync(tmp); } catch (e) { /* ignore */ }
+
+    // Keep rolling backup fresh so fallbacks are never weeks old
+    if (DATA_BACKUP_FILE && (!lastBackupTime || Date.now() - lastBackupTime > 600000)) {
+      try {
+        fs.copyFileSync(DATA_FILE, DATA_BACKUP_FILE);
+        lastBackupTime = Date.now();
+      } catch (e) { /* ignore */ }
+    }
+
     try { minuteBook.persist(MINUTE_LOG_FILE); } catch (e) { console.error('Minute-log save error:', e.message); }
   } catch (err) {
     console.error('Auto-save error:', err.message);
@@ -258,18 +258,27 @@ async function fetchBinanceKlines(symbol, interval = '1m', limit = 60) {
   const cached = mtfKlinesCache[cacheKey];
   const now = Date.now();
   const cacheTTL = interval === '1m' ? 0
-    : interval === '5m'  ? 20000
-    : interval === '1h'  ? 60000
-    : interval === '4h'  ? 180000
-    : interval === '1d'  ? 300000 : 0;
+    : interval === '5m'  ? 60000
+    : interval === '1h'  ? 300000
+    : interval === '4h'  ? 600000
+    : interval === '1d'  ? 1800000 : 0;
 
-  if (cached && (now - cached.timestamp) < cacheTTL) return cached.data;
+  // Stagger expiration per symbol so all 57 coins don't expire on the same millisecond
+  const jitter = (symbol.charCodeAt(0) * 1000) % 30000;
+  if (cached && (now - cached.timestamp) < (cacheTTL + jitter)) return cached.data;
 
   try {
     const parsed = await exchange.fetchKlines(symbol, interval, limit);
     if (cacheTTL > 0) mtfKlinesCache[cacheKey] = { timestamp: now, data: parsed };
     return parsed;
   } catch (e) {
+    // Cooldown on error: do not retry this coin/interval for at least 60s
+    if (cacheTTL > 0) {
+      mtfKlinesCache[cacheKey] = {
+        timestamp: now - cacheTTL + 60000,
+        data: cached ? cached.data : null
+      };
+    }
     return cached ? cached.data : null;
   }
 }
@@ -320,8 +329,8 @@ function tradeOptionsFromSettings() {
     slMultiplier: settings.slMultiplier,
     tpMultiplier: settings.tpMultiplier,
     slMode: settings.slMode || 'POSITION',
-    positionStopPercent: settings.positionStopPercent || 0.8,
-    positionTpPercent: settings.positionTpPercent || 1.6
+    positionStopPercent: settings.positionStopPercent || 1.2,
+    positionTpPercent: settings.positionTpPercent || 3.0
   };
 }
 
@@ -383,7 +392,7 @@ function qualityBlock(analysis, side) {
   if (settings.qualityMode === false) return null;
   if (!isLiquidSession()) return 'Outside London/NY hours';
   const dir = side === 'SHORT' ? 'SHORT' : 'LONG';
-  const maxSame = settings.maxSameDirection || 2;
+  const maxSame = Math.min(effectiveMaxPositions(), Number(settings.maxSameDirection) || 8);
   if (broker.positions.filter(p => p.side === dir).length >= maxSame) {
     return `Max ${maxSame} ${dir} book`;
   }
@@ -395,23 +404,29 @@ function qualityBlock(analysis, side) {
   const m5 = analysis.mtf && analysis.mtf['5m'];
   const m15 = analysis.mtf && analysis.mtf['15m'];
   const h1 = analysis.mtf && analysis.mtf['1h'];
-  if (dir === 'LONG' && (m5 === 'BEARISH' || m15 === 'BEARISH' || h1 === 'BEARISH')) {
-    return '5m/15m/1h against the long';
+
+  // Trend-alignment enforcement: never short against 15m/1h bull trend, never long against 15m/1h bear trend
+  if (dir === 'SHORT') {
+    if (m15 === 'BULLISH' || h1 === 'BULLISH') return '15m/1h Bullish — cannot short against higher timeframe';
+    if (m5 === 'BULLISH') return '5m is Bullish — cannot short against momentum';
+  } else if (dir === 'LONG') {
+    if (m15 === 'BEARISH' || h1 === 'BEARISH') return '15m/1h Bearish — cannot long against higher timeframe';
+    if (m5 === 'BEARISH') return '5m is Bearish — cannot long against momentum';
   }
-  if (dir === 'SHORT' && (m5 === 'BULLISH' || m15 === 'BULLISH' || h1 === 'BULLISH')) {
-    return '5m/15m/1h against the short';
-  }
+
   const f5 = analysis.fiveMin;
-  if (f5 && f5.side && f5.side !== 'HOLD' && f5.side !== dir) {
+  if (f5 && (f5.accuracy || 0) >= 0.53 && f5.side && f5.side !== 'HOLD' && f5.side !== dir) {
     return `5m forecast is ${f5.side}, not ${dir}`;
   }
-  // Alts usually follow BTC — do not long alts into a BTC dump (or short into melt-up)
+
+  // Macro market alignment: alts follow BTC. Never short alts when BTC is bullish/neutral, never long alts when BTC is dumping
   const btc = analysis.marketContext?.btcRegime || marketContext.cache.btcRegime;
   const sym = analysis.symbol || null;
   if (sym && sym !== 'BTCUSDT' && btc) {
     if (dir === 'LONG' && btc.side === 'SHORT') return 'BTC dumping — skip alt long';
-    if (dir === 'SHORT' && btc.side === 'LONG') return 'BTC ripping — skip alt short';
+    if (dir === 'SHORT' && btc.side !== 'SHORT') return 'BTC not in dump regime — alt shorts blocked';
   }
+
   analysis.entrySight = buildEntrySight(analysis, dir);
   if ((analysis.entrySight.confirmHits || 0) < 2) {
     const who = analysis.entrySight.confirms && analysis.entrySight.confirms.length
@@ -419,7 +434,6 @@ function qualityBlock(analysis, side) {
       : 'none';
     return `Not confident (${who} — need 2 confirms)`;
   }
-  // Live: ADX+B alone was 21% WR — require SMC/RL/5mF/FUND/BTC
   if (!analysis.entrySight.hasStructure) {
     const who = (analysis.entrySight.confirms || []).join('+') || 'none';
     return `Weak structure (${who} — need SMC/RL/5mF/FUND/BTC)`;
@@ -428,16 +442,18 @@ function qualityBlock(analysis, side) {
 }
 
 function effectiveMaxPositions() {
-  return Math.min(25, Math.max(1, Number(settings.maxPositions) || 25));
+  return Math.min(20, Math.max(1, Number(settings.maxPositions) || 10));
 }
 
 function effectiveThresholds() {
+  const conf = Math.max(30, Math.min(90, Number(settings.minConfidence) || 62));
+  const opp = Math.max(30, Math.min(90, Number(settings.minOpportunityScore) || 65));
   if (settings.qualityMode === false) {
-    return { minConfidence: settings.minConfidence, minOpportunity: settings.minOpportunityScore };
+    return { minConfidence: conf, minOpportunity: opp };
   }
   return {
-    minConfidence: Math.max(settings.minConfidence, 50),
-    minOpportunity: Math.max(settings.minOpportunityScore, 52)
+    minConfidence: Math.max(conf, 60),
+    minOpportunity: Math.max(opp, 62)
   };
 }
 
@@ -538,6 +554,13 @@ async function marketTradingTick() {
     /* non-fatal */
   }
 
+  // Live news / sentiment / trending / GitHub signals
+  try {
+    await newsFeed.refreshNews();
+  } catch (e) {
+    /* non-fatal — stale cache kept */
+  }
+
   for (let i = 0; i < WATCHED_COINS.length; i += batchSize) {
     const batch = WATCHED_COINS.slice(i, i + batchSize);
 
@@ -564,8 +587,9 @@ async function marketTradingTick() {
       const candles1mExec = candles1m.slice(-300);
       const candles5m = aggregate(candles1m, 5 * 60 * 1000).slice(-80);
       const candles15m = aggregate(candles1m, 15 * 60 * 1000).slice(-80);
+      const agg1h = aggregate(candles1m, 60 * 60 * 1000).slice(-50);
       const [candles1h, candles4h, candlesDaily] = await Promise.all([
-        fetchBinanceKlines(symbol, '1h', 50),
+        (agg1h.length >= 20) ? Promise.resolve(agg1h) : fetchBinanceKlines(symbol, '1h', 50),
         fetchBinanceKlines(symbol, '4h', 50),
         flags.usePDHPDL ? fetchBinanceKlines(symbol, '1d', 5) : Promise.resolve(null)
       ]);
@@ -577,7 +601,8 @@ async function marketTradingTick() {
         { ...flags, symbol, candles15m }
       );
       analysis.symbol = symbol;
-      marketContext.attachContext(analysis, symbol);
+      marketContext.attachContext(analysis, symbol);  // FUND, LSR, FNG, BTC votes
+      newsFeed.attachNewsContext(analysis, symbol);   // NEWS vote (CryptoPanic + trending + FNG trend)
       const fiveMin = fiveMinBook.observe(symbol, currentPrice, analysis);
       if (analysis.signal === 'BUY' || analysis.signal === 'SHORT') {
         analysis.entrySight = buildEntrySight(analysis, analysis.signal === 'SHORT' ? 'SHORT' : 'LONG');
@@ -658,7 +683,7 @@ async function marketTradingTick() {
   }
 
   candidates.sort((a, b) => (b.analysis.opportunityScore || 0) - (a.analysis.opportunityScore || 0));
-  const maxNew = 2;
+  const maxNew = Math.min(5, Math.max(2, effectiveMaxPositions() - broker.positions.length));
   let opened = 0;
   for (const c of candidates) {
     if (opened >= maxNew) break;
@@ -685,16 +710,24 @@ async function marketTradingTick() {
 
 async function guardedTick() {
   if (tickInFlight) {
-    if (Date.now() - lastScanSkipLog > 20000) {
+    if (Date.now() - lastScanSkipLog > 15000) {
       lastScanSkipLog = Date.now();
       console.log('[SCAN] Previous universe scan still running — entries wait, stops still update');
+      if (Date.now() - tickStartTime > 40000) {
+        console.warn('[SCAN] Universe scan hung >40s — auto-clearing scan lock to resume');
+        tickInFlight = false;
+      }
     }
     return;
   }
   tickInFlight = true;
-  const started = Date.now();
+  tickStartTime = Date.now();
+  const started = tickStartTime;
   try {
-    await marketTradingTick();
+    await Promise.race([
+      marketTradingTick(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Scan timeout after 25s')), 25000))
+    ]);
     console.log(`[SCAN] universe done in ${Date.now() - started}ms | open ${broker.positions.length}/${effectiveMaxPositions()}`);
   } catch (err) {
     console.error('[SCAN] error:', err.message);
@@ -800,6 +833,7 @@ app.get('/api/state', async (req, res) => {
       recent: (fiveMinBook.recent || []).slice(0, 20)
     },
     marketContext: marketContext.snapshot(),
+    newsFeed: newsFeed.snapshot(),
     performance: summarize(broker),
     lastBacktest,
     backtestRunning,
@@ -817,6 +851,22 @@ app.get('/api/state', async (req, res) => {
         WATCHED_COINS.map(s => [s, (klineStore1m[s] || []).length])
       )
     }
+  });
+});
+
+// ── News & sentiment snapshot ─────────────────────────────────────────────────
+app.get('/api/news', (req, res) => {
+  res.json(newsFeed.snapshot());
+});
+
+// ── Exchange info ─────────────────────────────────────────────────────────────
+app.get('/api/exchange', (req, res) => {
+  res.json({
+    exchangeId: exchangeCcxt.EXCHANGE_ID,
+    isBinance: exchangeCcxt.IS_BINANCE,
+    mode: exchange.TRADING_MODE,
+    testnet: exchange.USE_TESTNET,
+    leverage: exchange.FUTURES_LEVERAGE
   });
 });
 
@@ -840,8 +890,8 @@ app.post('/api/settings', requireControl, (req, res) => {
     slMultiplier:           Math.max(0.5,   Math.min(5.0,  parseFloat(n.slMultiplier         || settings.slMultiplier))),
     tpMultiplier:           Math.max(1.0,   Math.min(10.0, parseFloat(n.tpMultiplier         || settings.tpMultiplier))),
     slMode:                 'POSITION',
-    positionStopPercent:    Math.max(0.5,   Math.min(2.0,  parseFloat(n.positionStopPercent  || settings.positionStopPercent || 0.8))),
-    positionTpPercent:      Math.max(0.8,   Math.min(4.0,  parseFloat(n.positionTpPercent    || settings.positionTpPercent || 1.6))),
+    positionStopPercent:    Math.max(0.5,   Math.min(3.0,  parseFloat(n.positionStopPercent  || settings.positionStopPercent || 1.2))),
+    positionTpPercent:      Math.max(0.8,   Math.min(6.0,  parseFloat(n.positionTpPercent    || settings.positionTpPercent || 3.0))),
     chopCooldownMins:       Math.max(1,     Math.min(60,   parseInt(n.chopCooldownMins       || settings.chopCooldownMins))),
     slCooldownMins:         Math.max(1,     Math.min(120,  parseInt(n.slCooldownMins         || settings.slCooldownMins))),
     stopAndReverse:         n.stopAndReverse !== undefined ? Boolean(n.stopAndReverse) : settings.stopAndReverse,
@@ -850,8 +900,8 @@ app.post('/api/settings', requireControl, (req, res) => {
     smcEnabled:             n.smcEnabled    !== undefined ? Boolean(n.smcEnabled)     : settings.smcEnabled,
     qualityMode:            n.qualityMode !== undefined ? Boolean(n.qualityMode) : settings.qualityMode,
     tradeLiquidHoursOnly:   n.tradeLiquidHoursOnly !== undefined ? Boolean(n.tradeLiquidHoursOnly) : settings.tradeLiquidHoursOnly,
-    maxSameDirection:       Math.max(1, Math.min(20, parseInt(n.maxSameDirection || settings.maxSameDirection || 15))),
-    maxDailyLossPercent:    Math.max(1, Math.min(15, parseFloat(n.maxDailyLossPercent || settings.maxDailyLossPercent || 3)))
+    maxSameDirection:       Math.max(1, Math.min(20, parseInt(n.maxSameDirection || settings.maxSameDirection || 8))),
+    maxDailyLossPercent:    Math.max(1, Math.min(15, parseFloat(n.maxDailyLossPercent || settings.maxDailyLossPercent || 4)))
   };
   if (broker && !broker.live) broker.maxDailyLossPercent = settings.maxDailyLossPercent;
   settings = applyQualityCaps(settings);
@@ -861,14 +911,16 @@ app.post('/api/settings', requireControl, (req, res) => {
 });
 
 app.post('/api/bot/toggle', requireControl, (req, res) => {
-  if (broker.circuitBroken && !isBotActive) {
-    if (exchange.TRADING_MODE === 'live') {
+  if (broker.circuitBroken || !isBotActive) {
+    if (exchange.TRADING_MODE === 'live' && broker.circuitBroken) {
       return res.status(400).json({ success: false, error: broker.circuitReason || 'Circuit breaker is tripped' });
     }
     broker.circuitBroken = false;
     broker.circuitReason = null;
+    broker.dayRealizedPnL = 0;
   }
   isBotActive = !isBotActive;
+  persistState();
   res.json({ success: true, isBotActive });
 });
 

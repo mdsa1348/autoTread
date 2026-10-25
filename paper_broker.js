@@ -245,18 +245,22 @@ class PaperBroker {
   }
 
   applyPositionPnlTrail(pos, pnlPct) {
-    const risk = pos.positionRiskPercent || 0.8;
-    // Only protect after a full 1R; lock ~0.45% so fees do not erase the win.
-    if (pnlPct >= risk) {
-      if ((pos.slPnlPercent || -risk) < 0.45) {
-        pos.slPnlPercent = 0.45;
+    const risk = pos.positionRiskPercent || 1.2;
+    // Step 1: Breakeven lock when profit reaches +1.4% (locks +0.3% to cover all roundtrip fees)
+    if (pnlPct >= 1.4) {
+      const lock = 0.3;
+      if (lock > (pos.slPnlPercent || -risk)) {
+        pos.slPnlPercent = lock;
         pos.trailingActivated = true;
       }
     }
-    if (pnlPct >= risk * 1.25) {
-      const lock = Math.max(0.45, pnlPct - risk * 0.45);
-      if (lock > (pos.slPnlPercent || 0)) pos.slPnlPercent = lock;
-      pos.trailingActivated = true;
+    // Step 2: Once profit reaches +2.2%, trail at a safe distance (pnlPct - 0.7%) to let it run toward the 3.0% TP
+    if (pnlPct >= 2.2) {
+      const lock = Math.max(0.8, pnlPct - 0.7);
+      if (lock > (pos.slPnlPercent || -risk)) {
+        pos.slPnlPercent = lock;
+        pos.trailingActivated = true;
+      }
     }
     const px = pricesFromPositionPnl(pos, this.feeRate);
     pos.stopLoss = px.sl;
@@ -313,8 +317,8 @@ class PaperBroker {
 
       let shouldClose = false;
       let exitReason = '';
-      const slPnl = pos.slPnlPercent ?? -0.8;
-      const tpPnl = pos.tpPnlPercent ?? 1.6;
+      const slPnl = pos.slPnlPercent ?? -1.2;
+      const tpPnl = pos.tpPnlPercent ?? 3.0;
 
       if (pnlPct <= slPnl) {
         shouldClose = true;
@@ -325,18 +329,13 @@ class PaperBroker {
         shouldClose = true;
         exitReason = 'Position take-profit';
       } else {
-        // Cut losers early when thesis dies or the trade goes stale (losses held ~3h).
+        // Do NOT dump trades on 1m noise ('Thesis faded') — let them reach full SL, Breakeven, or TP!
+        // Only close if trade is held for >6 hours and is dead/negative
         const holdMs = pos.entryTime ? (Date.now() - new Date(pos.entryTime).getTime()) : 0;
         const holdMin = holdMs / 60000;
-        const sig = exitAnalysis?.signal || null;
-        const againstLong = pos.side === 'LONG' && (sig === 'SHORT' || sig === 'SELL' || sig === 'CHOP_SKIP');
-        const againstShort = pos.side === 'SHORT' && (sig === 'BUY' || sig === 'CHOP_SKIP');
-        if ((againstLong || againstShort) && pnlPct < 0.35 && holdMin >= 8) {
+        if (holdMin >= 360 && pnlPct < -0.8) {
           shouldClose = true;
-          exitReason = 'Thesis faded';
-        } else if (holdMin >= 90 && pnlPct < 0.35) {
-          shouldClose = true;
-          exitReason = 'Stale exit';
+          exitReason = 'Stale exit (>6h)';
         }
       }
 

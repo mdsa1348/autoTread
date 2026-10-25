@@ -128,6 +128,16 @@ async function fetchStateAndUpdate() {
 
     currentSettings = data.settings;
     runtimeInfo = data.runtime || null;
+
+    // Skip heavy dashboard DOM re-rendering while modal is open to keep scrolling butter-smooth
+    if (document.body.classList.contains('modal-open')) {
+      const modalBal = document.getElementById('modalFreeBalance');
+      if (modalBal && data.portfolio) {
+        modalBal.textContent = `${formatUSD(data.portfolio.freeBalance)} USDT`;
+      }
+      return;
+    }
+
     renderRuntimeBanner(runtimeInfo, data);
     renderTopbarAndKPIs(data);
     renderPerformance(data);
@@ -788,65 +798,56 @@ function toggleRiskModeUI() {
   }
 }
 
-function openSettingsModal() {
-  const modal = document.getElementById('settingsModal');
-  if (!modal) {
-    console.error('[UI] settingsModal missing from page');
-    return;
-  }
-  // Show first so a later field error cannot block the panel
-  modal.style.display = 'flex';
-  modal.setAttribute('aria-hidden', 'false');
-
+function fillSettingsModalForm(settingsObj) {
+  const s = settingsObj || currentSettings;
+  if (!s) return;
   try {
-    if (currentSettings) {
-      const sizingMode = currentSettings.sizingMode || 'PERCENT';
-      setFieldValue('settingSizingMode', sizingMode);
-      const allocVal = Math.round((currentSettings.allocationPercent || 0.15) * 100);
-      setFieldValue('settingAllocPercent', allocVal);
-      setText('allocVal', allocVal + '%');
-      setFieldValue('settingFixedTradeAmountUSD', currentSettings.fixedTradeAmountUSD || 10);
-      toggleSizingModeUI();
+    const sizingMode = s.sizingMode || 'PERCENT';
+    setFieldValue('settingSizingMode', sizingMode);
+    const allocVal = Math.round((s.allocationPercent || 0.15) * 100);
+    setFieldValue('settingAllocPercent', allocVal);
+    setText('allocVal', allocVal + '%');
+    setFieldValue('settingFixedTradeAmountUSD', s.fixedTradeAmountUSD || 10);
+    toggleSizingModeUI();
 
-      const riskMode = currentSettings.riskMode || 'PERCENT';
-      setFieldValue('settingRiskMode', riskMode);
-      const maxRiskVal = ((currentSettings.maxRiskPerTradePercent || 0.02) * 100).toFixed(1);
-      setFieldValue('settingMaxRiskPercent', maxRiskVal);
-      setText('maxRiskVal', maxRiskVal + '%');
-      setFieldValue('settingFixedRiskUSD', currentSettings.fixedRiskUSD || 1.0);
-      toggleRiskModeUI();
+    const riskMode = s.riskMode || 'PERCENT';
+    setFieldValue('settingRiskMode', riskMode);
+    const maxRiskVal = ((s.maxRiskPerTradePercent || 0.02) * 100).toFixed(1);
+    setFieldValue('settingMaxRiskPercent', maxRiskVal);
+    setText('maxRiskVal', maxRiskVal + '%');
+    setFieldValue('settingFixedRiskUSD', s.fixedRiskUSD || 1.0);
+    toggleRiskModeUI();
 
-      setFieldValue('settingMaxPositions', currentSettings.maxPositions || 25);
-      setText('maxPosVal', String(currentSettings.maxPositions || 25));
-      setFieldValue('settingMinConfidence', currentSettings.minConfidence || 50);
-      setText('confVal', (currentSettings.minConfidence || 50) + '%');
-      setFieldValue('settingMinOpportunity', currentSettings.minOpportunityScore || 55);
-      setText('oppVal', String(currentSettings.minOpportunityScore || 55));
-      const stopPct = currentSettings.positionStopPercent || 0.8;
-      const tpPct = currentSettings.positionTpPercent || 1.6;
-      setFieldValue('settingPositionStopPercent', stopPct);
-      setText('slVal', '-' + stopPct + '%');
-      setFieldValue('settingPositionTpPercent', tpPct);
-      setText('tpVal', '+' + tpPct + '%');
-      setFieldValue('settingMtfStrictness', currentSettings.mtfStrictness || '5m_15m_1h');
-      setFieldValue('settingChopCooldown', currentSettings.chopCooldownMins || 5);
-      setText('chopCdVal', (currentSettings.chopCooldownMins || 5) + ' mins');
-      setFieldValue('settingSlCooldown', currentSettings.slCooldownMins || 10);
-      setText('slCdVal', (currentSettings.slCooldownMins || 10) + ' mins');
+    setFieldValue('settingMaxPositions', s.maxPositions || 25);
+    setText('maxPosVal', String(s.maxPositions || 25));
+    setFieldValue('settingMinConfidence', s.minConfidence || 50);
+    setText('confVal', (s.minConfidence || 50) + '%');
+    setFieldValue('settingMinOpportunity', s.minOpportunityScore || 55);
+    setText('oppVal', String(s.minOpportunityScore || 55));
+    const stopPct = s.positionStopPercent || 0.8;
+    const tpPct = s.positionTpPercent || 1.6;
+    setFieldValue('settingPositionStopPercent', stopPct);
+    setText('slVal', '-' + stopPct + '%');
+    setFieldValue('settingPositionTpPercent', tpPct);
+    setText('tpVal', '+' + tpPct + '%');
+    setFieldValue('settingMtfStrictness', s.mtfStrictness || '5m_15m_1h');
+    setFieldValue('settingChopCooldown', s.chopCooldownMins || 5);
+    setText('chopCdVal', (s.chopCooldownMins || 5) + ' mins');
+    setFieldValue('settingSlCooldown', s.slCooldownMins || 10);
+    setText('slCdVal', (s.slCooldownMins || 10) + ' mins');
 
-      const sarEl = document.getElementById('settingStopAndReverse');
-      if (sarEl) sarEl.checked = !!currentSettings.stopAndReverse;
-      const smcEl = document.getElementById('settingSmcEnabled');
-      if (smcEl) smcEl.checked = currentSettings.smcEnabled !== false;
-      const pdhEl = document.getElementById('settingUsePDHPDL');
-      if (pdhEl) pdhEl.checked = currentSettings.usePDHPDL !== false;
-      const sessEl = document.getElementById('settingUseSessionLevels');
-      if (sessEl) sessEl.checked = currentSettings.useSessionLevels !== false;
-      const qEl = document.getElementById('settingQualityMode');
-      if (qEl) qEl.checked = currentSettings.qualityMode !== false;
-      const liqEl = document.getElementById('settingTradeLiquidHours');
-      if (liqEl) liqEl.checked = !!currentSettings.tradeLiquidHoursOnly;
-    }
+    const sarEl = document.getElementById('settingStopAndReverse');
+    if (sarEl) sarEl.checked = !!s.stopAndReverse;
+    const smcEl = document.getElementById('settingSmcEnabled');
+    if (smcEl) smcEl.checked = s.smcEnabled !== false;
+    const pdhEl = document.getElementById('settingUsePDHPDL');
+    if (pdhEl) pdhEl.checked = s.usePDHPDL !== false;
+    const sessEl = document.getElementById('settingUseSessionLevels');
+    if (sessEl) sessEl.checked = s.useSessionLevels !== false;
+    const qEl = document.getElementById('settingQualityMode');
+    if (qEl) qEl.checked = s.qualityMode !== false;
+    const liqEl = document.getElementById('settingTradeLiquidHours');
+    if (liqEl) liqEl.checked = !!s.tradeLiquidHoursOnly;
 
     setFieldValue('settingControlToken', controlToken || '');
     const liveBox = document.getElementById('liveBalanceHint');
@@ -854,16 +855,65 @@ function openSettingsModal() {
       liveBox.style.display = runtimeInfo.mode === 'live' ? 'block' : 'none';
     }
   } catch (err) {
-    console.error('[UI] settings fill failed (modal still open):', err);
+    console.error('[UI] settings fill failed:', err);
   }
 }
 
-function closeSettingsModal() {
+function openSettingsModal(e) {
+  if (e && typeof e.preventDefault === 'function') {
+    e.preventDefault();
+  }
+  const modal = document.getElementById('settingsModal');
+  if (!modal) {
+    console.error('[UI] settingsModal missing from page');
+    return;
+  }
+  if (modal.classList.contains('open')) {
+    return;
+  }
+
+  // Display modal immediately
+  modal.style.display = 'flex';
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+
+  // Reset scroll position to top
+  const bodyEl = modal.querySelector('.modal-body');
+  if (bodyEl) {
+    bodyEl.scrollTop = 0;
+  }
+
+  // Populate settings form
+  if (currentSettings) {
+    fillSettingsModalForm(currentSettings);
+  } else {
+    // Fetch directly from server so form is never blank
+    fetch('/api/settings')
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (data) {
+          currentSettings = data;
+          fillSettingsModalForm(data);
+        }
+      })
+      .catch(err => console.warn('[UI] settings fallback fetch failed:', err));
+  }
+}
+
+function closeSettingsModal(e) {
+  if (e && typeof e.preventDefault === 'function') {
+    e.preventDefault();
+  }
   const modal = document.getElementById('settingsModal');
   if (modal) {
+    modal.classList.remove('open');
     modal.style.display = 'none';
     modal.setAttribute('aria-hidden', 'true');
   }
+  document.body.classList.remove('modal-open');
+  // Immediately refresh dashboard now that modal is closed
+  fetchStateAndUpdate();
 }
 
 async function saveSettingsFromModal() {
@@ -930,12 +980,6 @@ async function saveSettingsFromModal() {
   }
 }
 
-window.openSettingsModal = openSettingsModal;
-window.closeSettingsModal = closeSettingsModal;
-window.saveSettingsFromModal = saveSettingsFromModal;
-window.toggleSizingModeUI = toggleSizingModeUI;
-window.toggleRiskModeUI = toggleRiskModeUI;
-
 async function setCustomBalance() {
   if (runtimeInfo && runtimeInfo.mode === 'live') {
     return alert('Balance reset is disabled in live mode. Equity comes from Binance.');
@@ -993,8 +1037,19 @@ async function manualClose(positionId) {
   fetchStateAndUpdate();
 }
 
+window.openSettingsModal = openSettingsModal;
+window.closeSettingsModal = closeSettingsModal;
+window.saveSettingsFromModal = saveSettingsFromModal;
+window.toggleSizingModeUI = toggleSizingModeUI;
+window.toggleRiskModeUI = toggleRiskModeUI;
+window.setCustomBalance = setCustomBalance;
+window.toggleBot = toggleBot;
+window.resetDemo = resetDemo;
+window.triggerManualOrder = triggerManualOrder;
+window.manualClose = manualClose;
+
 // Boot UI
-window.addEventListener('DOMContentLoaded', () => {
+function initDashboardUI() {
   try {
     if (typeof Chart !== 'undefined') {
       initChart();
@@ -1005,19 +1060,51 @@ window.addEventListener('DOMContentLoaded', () => {
   } catch (err) {
     console.error('[UI] chart init failed:', err);
   }
-  const settingsBtn = document.getElementById('openSettingsBtn');
-  if (settingsBtn) {
-    settingsBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      openSettingsModal();
-    });
-  }
+
   const modal = document.getElementById('settingsModal');
   if (modal) {
     modal.addEventListener('click', (e) => {
-      if (e.target === modal) closeSettingsModal();
+      // Close only if user clicked on the backdrop overlay itself
+      if (e.target === modal) {
+        closeSettingsModal(e);
+      }
     });
+
+    // Forward wheel scrolling anywhere on the modal or over inputs to .modal-body
+    const bodyEl = modal.querySelector('.modal-body');
+    if (bodyEl) {
+      modal.addEventListener('wheel', (e) => {
+        if (!e.target.closest('.modal-body')) {
+          bodyEl.scrollTop += e.deltaY;
+          e.preventDefault();
+        }
+      }, { passive: false });
+
+      modal.querySelectorAll('input[type="range"]').forEach((slider) => {
+        slider.addEventListener('wheel', (e) => {
+          bodyEl.scrollTop += e.deltaY;
+          e.preventDefault();
+        }, { passive: false });
+      });
+    }
   }
+
+  // Allow closing modal with Escape key
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const m = document.getElementById('settingsModal');
+      if (m && (m.classList.contains('open') || m.style.display === 'flex')) {
+        closeSettingsModal();
+      }
+    }
+  });
+
   fetchStateAndUpdate();
   setInterval(fetchStateAndUpdate, 3000);
-});
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', initDashboardUI);
+} else {
+  initDashboardUI();
+}

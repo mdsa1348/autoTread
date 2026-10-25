@@ -159,23 +159,32 @@ function collectSamples(ai, symbol, bars, daily, step, horizon, source) {
 }
 
 function loadBackupTrades() {
-  const file = path.join(__dirname, 'data_store.pre-restart.json');
-  if (!fs.existsSync(file)) return [];
-  try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return (raw.broker?.tradeHistory || [])
-      .filter(t => Array.isArray(t.analysis?.features) && t.analysis.features.length === 15)
-      .map(t => ({
-        t: new Date(t.exitTime || t.entryTime || 0).getTime(),
-        symbol: t.symbol,
-        side: t.side || 'LONG',
-        features: t.analysis.features,
-        target: t.netProfit > 0 ? 1 : 0,
-        source: 'closed-backup'
-      }));
-  } catch {
-    return [];
+  const files = [
+    path.join(__dirname, 'data_store.json'),
+    path.join(__dirname, 'data_store.pre-restart.json')
+  ];
+  const seen = new Set();
+  const trades = [];
+  for (const file of files) {
+    if (!fs.existsSync(file)) continue;
+    try {
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const t of raw.broker?.tradeHistory || []) {
+        if (!t || (t.id && seen.has(t.id))) continue;
+        if (t.id) seen.add(t.id);
+        if (!Array.isArray(t.analysis?.features) || t.analysis.features.length !== 15) continue;
+        trades.push({
+          t: new Date(t.exitTime || t.entryTime || 0).getTime(),
+          symbol: t.symbol,
+          side: t.side || 'LONG',
+          features: t.analysis.features,
+          target: t.netProfit > 0 ? 1 : 0,
+          source: 'closed-backup'
+        });
+      }
+    } catch { /* skip */ }
   }
+  return trades;
 }
 
 function accuracy(model, rows) {

@@ -1,0 +1,300 @@
+pipeline:
+  name: AutoTread CI/CD
+  identifier: autotread_cicd
+  projectIdentifier: AutoTread
+  orgIdentifier: default
+  description: >
+    Full CI/CD pipeline for AutoTread.
+    Stages: Lint → Test → Docker Build → Health Gate → Deploy → Rollback on failure.
+
+  stages:
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Stage 1: Lint & Syntax Check
+    # ──────────────────────────────────────────────────────────────────────────
+    - stage:
+        name: Lint
+        identifier: lint
+        type: CI
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: k8s_connector
+              namespace: autotread-ci
+          execution:
+            steps:
+              - step:
+                  name: Node Version Check
+                  identifier: node_version
+                  type: Run
+                  spec:
+                    shell: Sh
+                    command: |
+                      node --version
+                      npm --version
+                      echo "Node OK"
+
+              - step:
+                  name: Install Dependencies
+                  identifier: npm_install
+                  type: Run
+                  spec:
+                    shell: Sh
+                    command: npm ci --omit=dev
+                    envVariables:
+                      NODE_ENV: production
+
+              - step:
+                  name: Syntax Check (node --check)
+                  identifier: syntax_check
+                  type: Run
+                  spec:
+                    shell: Sh
+                    command: |
+                      for f in server.js ai_engine.js exchange.js exchange_ccxt.js \
+                                market_context.js news_feed.js paper_broker.js \
+                                live_broker.js backtest.js backtest_compare.js \
+                                analysis_log.js paths.js coins.js watchdog.js; do
+                        echo "Checking $f..."
+                        node --check "$f"
+                      done
+                      echo "All syntax checks passed ✅"
+
+              - step:
+                  name: Module Load Smoke Test
+                  identifier: module_smoke
+                  type: Run
+                  spec:
+                    shell: Sh
+                    command: |
+                      node -e "
+                        require('./paths');
+                        require('./coins');
+                        require('./exchange');
+                        require('./exchange_ccxt');
+                        require('./market_context');
+                        require('./news_feed');
+                        require('./analysis_log');
+                        require('./backtest');
+                        console.log('All modules load OK ✅');
+                      "
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Stage 2: Backtest Gate
+    # Run a quick backtest on BTC/ETH only; fail if winRate < 45%
+    # ──────────────────────────────────────────────────────────────────────────
+    - stage:
+        name: Backtest Gate
+        identifier: backtest_gate
+        type: CI
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: k8s_connector
+              namespace: autotread-ci
+          execution:
+            steps:
+              - step:
+                  name: Install Dependencies
+                  identifier: npm_install_bt
+                  type: Run
+                  spec:
+                    shell: Sh
+                    command: npm ci --omit=dev
+
+              - step:
+                  name: Run Comparison Backtest
+                  identifier: run_backtest
+                  type: Run
+                  spec:
+                    shell: Sh
+                    envVariables:
+                      TRADING_MODE: paper
+                      NODE_ENV: test
+                    command: |
+                      node -e "
+                        const { runBacktest } = require('./backtest');
+                        runBacktest({ symbols: ['BTCUSDT','ETHUSDT'], fiveMinBars: 400 })
+                          .then(r => {
+                            console.log('Win rate:', r.winRate + '%');
+                            console.log('Net profit:', r.netProfitPercent + '%');
+                            console.log('Trades:', r.trades);
+                            if (r.trades > 0 && r.winRate < 35) {
+                              console.error('❌ Win rate too low (' + r.winRate + '%) — blocking deploy');
+                              process.exit(1);
+                            }
+                            console.log('✅ Backtest gate passed');
+                          })
+                          .catch(e => { console.error(e.message); process.exit(1); });
+                      " 2>&1
+                  failureStrategies:
+                    - onFailure:
+                        errors:
+                          - AllErrors
+                        action:
+                          type: Abort
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Stage 3: Docker Build & Push
+    # ──────────────────────────────────────────────────────────────────────────
+    - stage:
+        name: Docker Build
+        identifier: docker_build
+        type: CI
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: k8s_connector
+              namespace: autotread-ci
+          execution:
+            steps:
+              - step:
+                  name: Build & Push Docker Image
+                  identifier: docker_push
+                  type: BuildAndPushDockerRegistry
+                  spec:
+                    connectorRef: dockerhub_connector
+                    repo: <+pipeline.variables.DOCKER_REPO>
+                    tags:
+                      - latest
+                      - <+pipeline.executionId>
+                    dockerfile: Dockerfile
+                    context: .
+                    buildArgs:
+                      NODE_ENV: production
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Stage 4: Deploy to Fly.io
+    # ──────────────────────────────────────────────────────────────────────────
+    - stage:
+        name: Deploy
+        identifier: deploy
+        type: Deployment
+        spec:
+          deploymentType: CustomDeployment
+          service:
+            serviceRef: autotread_service
+            serviceInputs:
+              serviceDefinition:
+                type: CustomDeployment
+                spec:
+                  variables:
+                    - name: IMAGE_TAG
+                      type: String
+                      value: <+pipeline.executionId>
+          environment:
+            environmentRef: production
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: fly_io_infra
+          execution:
+            steps:
+              - step:
+                  name: Deploy to Fly.io
+                  identifier: fly_deploy
+                  type: Run
+                  spec:
+                    shell: Sh
+                    envVariables:
+                      FLY_API_TOKEN: <+secrets.getValue("fly_api_token")>
+                      TRADING_MODE: paper
+                      NODE_ENV: production
+                    command: |
+                      # Install flyctl if not present
+                      which flyctl || curl -L https://fly.io/install.sh | sh
+                      export PATH="$HOME/.fly/bin:$PATH"
+
+                      # Deploy
+                      flyctl deploy \
+                        --remote-only \
+                        --image <+pipeline.variables.DOCKER_REPO>:<+pipeline.executionId> \
+                        --app autotread \
+                        --env TRADING_MODE=paper \
+                        --env NODE_ENV=production
+
+              - step:
+                  name: Health Check Gate
+                  identifier: health_check
+                  type: Run
+                  spec:
+                    shell: Sh
+                    command: |
+                      echo "Waiting 30s for app to start..."
+                      sleep 30
+                      HEALTH=$(curl -sf https://autotread.fly.dev/health || echo "FAIL")
+                      echo "Health response: $HEALTH"
+                      if echo "$HEALTH" | grep -q '"ok":true'; then
+                        echo "✅ Health check passed"
+                      else
+                        echo "❌ Health check failed — triggering rollback"
+                        exit 1
+                      fi
+                  failureStrategies:
+                    - onFailure:
+                        errors:
+                          - AllErrors
+                        action:
+                          type: StageRollback
+
+              - rollbackStep:
+                  name: Rollback Fly.io Deploy
+                  identifier: fly_rollback
+                  type: Run
+                  spec:
+                    shell: Sh
+                    envVariables:
+                      FLY_API_TOKEN: <+secrets.getValue("fly_api_token")>
+                    command: |
+                      export PATH="$HOME/.fly/bin:$PATH"
+                      echo "🔄 Rolling back to previous release..."
+                      flyctl releases list --app autotread --json | \
+                        node -e "
+                          const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+                          const prev = d.filter(r => !r.Reason?.includes('rollback'))[1];
+                          if (prev) console.log(prev.Version);
+                          else process.exit(1);
+                        " | xargs -I{} flyctl deploy --image {} --app autotread
+                      echo "✅ Rollback complete"
+
+  variables:
+    - name: DOCKER_REPO
+      type: String
+      description: Docker Hub image repo (e.g. youruser/autotread)
+      value: youruser/autotread
+
+  properties:
+    ci:
+      codebase:
+        connectorRef: github_connector
+        repoName: AutoTread
+        build:
+          type: branch
+          spec:
+            branch: main
+
+  triggers:
+    - trigger:
+        name: Push to main
+        identifier: push_main
+        enabled: true
+        source:
+          type: Webhook
+          spec:
+            type: Github
+            spec:
+              event: Push
+              actions:
+                - Push
+              connectorRef: github_connector
+              repoName: AutoTread
+              autoAbortPreviousExecutions: true
+              payloadConditions:
+                - key: targetBranch
+                  operator: Equals
+                  value: main

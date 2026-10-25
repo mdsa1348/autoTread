@@ -5,8 +5,9 @@
 const { AIBrain } = require('./ai_engine');
 const exchange = require('./exchange');
 const secondOpinion = require('./second_opinion');
+const { WATCHED_COINS } = require('./coins');
 
-const SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'DOGEUSDT', 'LINKUSDT', 'AVAXUSDT'];
+const SYMBOLS = WATCHED_COINS;
 const LOOKBACK = 120;
 const AHEAD = 20;
 const FEE = 0.001;

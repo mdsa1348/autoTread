@@ -1,23 +1,28 @@
 {
   "name": "ai-crypto-paper-trader",
-  "version": "1.0.0",
-  "description": "Autonomous AI Crypto Trading Bot with Continuous Learning, Trailing SL/TP, and Live Dashboard",
+  "version": "1.1.0",
+  "description": "Autonomous AI Crypto Trading Bot with Continuous Learning, News Feed, Multi-Exchange (CCXT), Trailing SL/TP, and Live Dashboard",
   "main": "server.js",
   "scripts": {
-    "start": "node watchdog.js",
-    "start:once": "node server.js",
-    "backtest": "node backtest.js",
-    "train": "node train_offline.js",
-    "train:opinion": "node train_opinion_b.js",
-    "train:years": "node train_years.js",
-    "train:rl": "node train_rl.js"
+    "start":          "node watchdog.js",
+    "start:once":     "node server.js",
+    "backtest":       "node backtest.js",
+    "compare":        "node backtest_compare.js",
+    "train":          "node train_offline.js",
+    "train:opinion":  "node train_opinion_b.js",
+    "train:years":    "node train_years.js",
+    "train:rl":       "node train_rl.js",
+    "news:test":      "node -e \"require('./news_feed').refreshNews().then(s => console.log(JSON.stringify(s,null,2)))\"",
+    "exchange:list":  "node -e \"require('./exchange_ccxt').listUsdtPerpMarkets().then(m => console.log(m.slice(0,20)))\"",
+    "paths:check":    "node -e \"console.log(JSON.stringify(require('./paths'),null,2))\""
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
-    "express": "^4.19.2",
-    "ws": "^8.17.0"
+    "ccxt":             "*",
+    "express":          "^4.19.2",
+    "ws":               "^8.17.0"
   }
 }

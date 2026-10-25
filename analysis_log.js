@@ -4,6 +4,8 @@
  */
 
 const fs = require('fs');
+const path = require('path');
+const { ARCHIVE_DIR } = require('./paths');
 
 const MAX_PER_SYMBOL = 1440; // 24h of 1-minute snapshots
 const MAX_PATH_ON_TRADE = 180;
@@ -170,9 +172,11 @@ class MinuteBook {
     } catch (e) {
       console.error('[MINUTE] Failed to load analysis log:', e.message);
       try {
-        const dest = String(file).replace(/\.json$/i, `.corrupt-${Date.now()}.json`);
+        if (!fs.existsSync(ARCHIVE_DIR)) fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
+        const basename = path.basename(file).replace(/\.json$/i, `.corrupt-${Date.now()}.json`);
+        const dest = path.join(ARCHIVE_DIR, basename);
         fs.copyFileSync(file, dest);
-        console.error(`[MINUTE] Quarantined unreadable log → ${dest}`);
+        console.error(`[MINUTE] Quarantined unreadable log → archive/${basename}`);
       } catch (copyErr) {
         console.error('[MINUTE] Could not quarantine corrupt log:', copyErr.message);
       }
@@ -220,6 +224,7 @@ function buildEntrySight(analysis, side) {
   const lsrOk = votes.LSR === dir;
   const fngOk = votes.FNG === dir;
   const btcOk = votes.BTC === dir;
+  const newsOk = votes.NEWS === dir;
   const confirms = [];
   if (adxOk) confirms.push('ADX');
   if (smcOk) confirms.push('SMC');
@@ -230,12 +235,14 @@ function buildEntrySight(analysis, side) {
   if (lsrOk) confirms.push('LSR');
   if (fngOk) confirms.push('FNG');
   if (btcOk) confirms.push('BTC');
+  if (newsOk) confirms.push('NEWS');
   // ADX+B alone printed 21% WR / −$25 live — need structure or external context
   const hasStructure = confirms.includes('SMC')
     || confirms.includes('RL')
     || confirms.includes('5mF')
     || confirms.includes('FUND')
-    || confirms.includes('BTC');
+    || confirms.includes('BTC')
+    || confirms.includes('NEWS');
   const agreed = [];
   if (m5Agree) agreed.push('5m');
   if (m15Agree) agreed.push('15m');
@@ -265,6 +272,7 @@ function buildEntrySight(analysis, side) {
     lsrOk,
     fngOk,
     btcOk,
+    newsOk,
     marketContext: analysis?.marketContext || null,
     confirms,
     confirmHits: confirms.length,

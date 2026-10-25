@@ -13,7 +13,8 @@ const secondOpinion = require('./second_opinion');
 const { rlPolicy } = require('./rl_policy');
 const { buildEntrySight } = require('./analysis_log');
 const MIN_NN_TRADES = 20;
-const TRAINABLE_CONFIRMS = ['ADX', 'SMC', 'B', 'RL', '5mF', 'FUND', 'LSR', 'FNG', 'BTC'];
+const TRAINABLE_CONFIRMS = ['ADX', 'SMC', 'B', 'RL', '5mF', 'FUND', 'LSR', 'FNG', 'BTC', 'NEWS'];
+
 
 // Indicator helper functions
 function calcEMA(values, period) {

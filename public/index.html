@@ -34,7 +34,7 @@
         <span id="headerEquity" class="value glow-text">$10,000.00</span>
       </div>
       <div class="header-actions">
-        <button type="button" id="openSettingsBtn" class="btn btn-outline" onclick="openSettingsModal()">⚙️ Settings & Risk</button>
+        <button type="button" id="openSettingsBtn" class="btn btn-outline" onclick="openSettingsModal(event)">⚙️ Settings & Risk</button>
         <button id="toggleBotBtn" class="btn btn-outline" onclick="toggleBot()">Pause AI Bot</button>
         <button class="btn btn-danger-outline" onclick="resetDemo()">Reset Demo</button>
       </div>
@@ -329,7 +329,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2>⚙️ Terminal Settings & Risk Management</h2>
-        <button class="modal-close-btn" onclick="closeSettingsModal()">✕</button>
+        <button class="modal-close-btn" onclick="closeSettingsModal(event)">✕</button>
       </div>
 
       <div class="modal-body">
@@ -565,7 +565,7 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn btn-outline" onclick="closeSettingsModal()">Cancel</button>
+        <button class="btn btn-outline" onclick="closeSettingsModal(event)">Cancel</button>
         <button class="btn btn-primary" onclick="saveSettingsFromModal()">Save & Apply Settings</button>
       </div>
     </div>
